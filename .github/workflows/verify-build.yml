@@ -23,6 +23,12 @@ jobs:
           java-version: '21'
       - name: Test real Firestore transactions and rules in isolated emulator
         run: npx --yes firebase-tools emulators:exec --config firebase/emulator.json --project demo-bright-ai --only firestore "node --test tests/firestore.test.js"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Bright-Ai-Server-Verification
+          path: cloud/package-lock.json
+          retention-days: 14
   windows:
     needs: tests
     runs-on: windows-latest
