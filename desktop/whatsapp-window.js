@@ -1,23 +1,18 @@
 'use strict';
+// WhatsApp rejects the embedded browser. Use the user's supported browser.
+// This launcher accepts no URL from the renderer or any customer content.
 const WHATSAPP_URL='https://web.whatsapp.com/';
-const PARTITION='persist:bright-whatsapp-manual';
-function allowedWhatsAppNavigation(value){try{const u=new URL(value);return u.origin==='https://web.whatsapp.com'&&!u.username&&!u.password;}catch{return false;}}
-function createWhatsAppWindow({BrowserWindow,session,dialog}){
- let window;
- return async function open(){
-  if(window&&!window.isDestroyed()){window.show();window.focus();return window;}
-  const isolated=session.fromPartition(PARTITION);
-  isolated.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
-  isolated.setPermissionCheckHandler(()=>false);
-  isolated.on('will-download',event=>event.preventDefault());
-  window=new BrowserWindow({title:'Bright Ai — WhatsApp',width:1200,height:850,minWidth:800,minHeight:600,webPreferences:{partition:PARTITION,nodeIntegration:false,nodeIntegrationInWorker:false,contextIsolation:true,sandbox:true,webSecurity:true,webviewTag:false}});
-  window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
-  const guard=(event,url)=>{if(!allowedWhatsAppNavigation(url))event.preventDefault();};
-  window.webContents.on('will-navigate',guard);window.webContents.on('will-redirect',guard);
-  window.webContents.on('will-attach-webview',event=>event.preventDefault());
-  window.on('closed',()=>{window=null;});
-  try{await window.loadURL(WHATSAPP_URL);}catch{dialog.showErrorBox('Bright Ai — WhatsApp','تعذر تحميل واتساب. تحقق من الإنترنت. جلسة واتساب لم يتم ربطها تلقائيًا.');}
-  return window;
+function createWhatsAppLauncher({shell,dialog}){
+ let opening;
+ return function open(){
+  if(opening)return opening;
+  opening=(async()=>{
+   await Promise.resolve();
+   try{await shell.openExternal(WHATSAPP_URL);return {opened:true};}
+   catch{dialog.showErrorBox('Bright Ai — WhatsApp','تعذر فتح متصفح جهازك. افتح المتصفح بنفسك واكتب: https://web.whatsapp.com/');return {opened:false};}
+   finally{opening=null;}
+  })();
+  return opening;
  };
 }
-module.exports={WHATSAPP_URL,PARTITION,allowedWhatsAppNavigation,createWhatsAppWindow};
+module.exports={WHATSAPP_URL,createWhatsAppLauncher};
