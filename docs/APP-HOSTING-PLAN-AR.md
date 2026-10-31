@@ -37,3 +37,5 @@
 ## متابعة النشر الفعلي
 
 أول بناء build-2026-10-31-000 فشل في npm ci بسبب عدم تطابق lockfile في بيئة البناء، رغم نجاح npm ci محليًا. ثُبت npm على 11.9.0 (الإصدار المختبر) في engines لإعادة البناء. حُفظ BRIGHT_ALLOWED_ORIGINS وBRIGHT_PUBLIC_URL بالقيمة المطابقة لنطاق Backend في Console، وتسري مع الإصدار التالي. لم يُختبر تسجيل دخول حقيقي أو حفظ بيانات إنتاج حتى الآن.
+
+تشخيص المحاولة الثانية: buildpack يعيد تسلسل package.json عند وجود scripts.buildCommand في YAML، وبنيته لا تحفظ overrides. نُقل الأمر إلى scripts["apphosting:build"] وحُذف buildCommand من YAML للحفاظ على ترقيعات الاعتمادات. المصدر: GoogleCloudPlatform/buildpacks، pkg/nodejs/nodejs.go، OverrideAppHostingBuildScript وPackageJSON. لا إزالة للترقيعات ولا قبول اعتمادات أقدم بها تحذيرات أمنية.

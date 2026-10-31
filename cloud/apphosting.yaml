@@ -6,7 +6,6 @@ runConfig:
   minInstances: 0
   maxInstances: 1
 scripts:
-  buildCommand: node build-apphosting.js
   runCommand: node service.js
 outputFiles:
   serverApp:
