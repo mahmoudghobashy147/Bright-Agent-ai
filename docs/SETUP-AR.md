@@ -31,4 +31,14 @@ GitHub Actions يبني الملف بعد الاختبارات وفحص التب
 
 ## قواعد Firebase
 
-بعد حذف مجموعتي CRM بموافقة المستخدم، جُهزت `firebase/bright-ai-server-only.rules` لمنع أي وصول مباشر من العميل. هذه القواعد مسودة غير منشورة، وتتطلب موافقة صريحة قبل النشر لأن خادم API لم يُنشر بعد وقد يتوقف أي عميل مباشر. القواعد المنشورة حاليًا لا تزال قواعد CRM القديمة؛ لا تفترض أن المسودة أصبحت فعالة. راجع سجل CRM-SEPARATION-AR.md لحالة التنفيذ.
+تم حذف مجموعتي CRM بموافقة صريحة بدون نسخة، ثم نشر `firebase/bright-ai-server-only.rules` بعد موافقة المستخدم على منع العملاء المباشرين. البيانات تمر عبر API مع عضوية الشركات، وAdmin SDK يحتاج هوية خادم مصرحًا بها عبر IAM.
+
+## Firebase App Hosting
+
+- حزمة المصدر تُجهز بواسطة `python3 scripts/package-apphosting.py /absolute/path/source.zip`، ثم يُرفع ZIP في Firebase Console. اختر جذر التطبيق `/`.
+- `cloud/apphosting.yaml` يحدد Node server وminInstances=0 وmaxInstances=1. السقف نسخة تشغيل واحدة لا يضمن حدًا ماليًا ثابتًا؛ Cloud Build/Storage/Run قد تترتب عليها رسوم حسب الاستخدام على Blaze.
+- إنشاء مصدر ZIP لأول مرة يفعّل Storage API وينشئ source bucket ويمنح App Hosting Service Agent صلاحية قراءة المصدر. لم يُنفذ هذا الإعداد قبل موافقة محددة على موارد النشر والصلاحيات.
+- يلزم ضبط BRIGHT_ALLOWED_ORIGINS وBRIGHT_PUBLIC_URL على أصل HTTPS الفعلي الذي يعرضه Backend بعد إنشائه؛ قيمة YAML الأولية تسمح فقط بأصل Firebase Hosting الحالي.
+- يمكن اعتماد Super Admin عبر Firebase custom claim أو allowlist خادمية `BRIGHT_SUPER_ADMIN_UIDS`. القائمة فارغة افتراضيًا ولا تُملأ بحساب حقيقي قبل موافقة على الحساب المعني. امتلاك حساب Google للمشروع لا يجعله حساب Firebase Auth تلقائيًا.
+- مفاتيح OpenAI وMeta وPaymob تضاف عبر Secret Manager على الخادم؛ لا تضاف للحزمة أو GitHub أو المتصفح.
+- راجع docs/APP-HOSTING-PLAN-AR.md قبل استكمال المعالج. لا يُنشأ أي خصم دوري ولا تُرسل رسالة عميل من إعداد النشر هذا.

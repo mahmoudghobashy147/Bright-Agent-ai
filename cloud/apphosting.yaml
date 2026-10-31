@@ -1,0 +1,28 @@
+# Non-secret deployment configuration. Actual hosted origin must be verified before rollout acceptance.
+runConfig:
+  cpu: 1
+  memoryMiB: 512
+  concurrency: 20
+  minInstances: 0
+  maxInstances: 1
+scripts:
+  buildCommand: node build-apphosting.js
+  runCommand: node service.js
+outputFiles:
+  serverApp:
+    include: ["."]
+env:
+  - variable: NODE_ENV
+    value: production
+  - variable: GOOGLE_CLOUD_PROJECT
+    value: bright-33420
+  - variable: BRIGHT_FIREBASE_PROJECT_ID
+    value: bright-33420
+  - variable: BRIGHT_ALLOWED_ORIGINS
+    value: https://bright-33420.web.app
+  - variable: BRIGHT_PUBLIC_CHAT_ENABLED
+    value: "false"
+  - variable: BRIGHT_ALLOW_CUSTOMER_SENDS
+    value: "false"
+  - variable: BRIGHT_PAYMENTS_MODE
+    value: disabled

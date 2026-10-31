@@ -17,12 +17,19 @@ jobs:
       - run: npm run scan
       - run: npm ci --prefix cloud --ignore-scripts
       - run: npm audit --prefix cloud --omit=dev --audit-level=moderate
+      - run: npm run build --prefix cloud
+      - run: python3 scripts/package-apphosting.py artifacts/Bright-Ai-AppHosting-Source.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bright-Ai-AppHosting-Source
+          path: artifacts/Bright-Ai-AppHosting-Source.zip
+          retention-days: 14
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-      - name: Test real Firestore transactions and rules in isolated emulator
-        run: npx --yes firebase-tools emulators:exec --config firebase/emulator.json --project demo-bright-ai --only firestore "node --test tests/firestore.test.js"
+      - name: Test real Auth, API startup and Firestore in isolated emulators
+        run: npx --yes firebase-tools emulators:exec --config firebase/emulator.json --project demo-bright-ai --only firestore,auth "node --test tests/firestore.test.js tests/apphosting-startup.test.js"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

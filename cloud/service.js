@@ -21,7 +21,7 @@ const txt=(x,n)=>String(x??'').trim().slice(0,n);
 const monthlyKey=()=>new Date().toISOString().slice(0,7);
 const today=()=>new Date().toISOString().slice(0,10);
 const agentSettings=b=>({businessDescription:txt(b.businessDescription,1500),services:txt(b.services,2500),guidelines:txt(b.guidelines,2000),greeting:txt(b.greeting,500)});
-const superAdmin=u=>u?.brightSuperAdmin===true;
+const superAdmin=(u,allowedUids=new Set())=>u?.brightSuperAdmin===true||(typeof u?.uid==='string'&&allowedUids.has(u.uid));
 
 const active=subscriptionActive;
 const allowedOrigin=(origin,allowed)=>!origin||allowed.has(origin);
@@ -34,13 +34,15 @@ async function parseBody(req,maxBytes=10000){
  return value;
 }
 function send(res,status,data){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-frame-options':'DENY'});res.end(JSON.stringify(data));}
-function makeService({admin,db,auth,allowedOrigins=new Set(),agent=async()=>({reply:'أهلًا بيك. تم استلام رسالتك التجريبية، وفريق العمل هيتابع معاك.',mode:'demo'})}){
+function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new Set(),agent=async()=>({reply:'أهلًا بيك. تم استلام رسالتك التجريبية، وفريق العمل هيتابع معاك.',mode:'demo'})}){
  const throttle=rateLimiter();
+ const isSuperAdmin=user=>superAdmin(user,superAdminUids);
  const tenants=db.collection('brightAiTenants');
  async function userFromBearer(req){const m=/^Bearer (\S+)$/.exec(req.headers.authorization||'');if(!m)throw Object.assign(Error('sign in required'),{status:401});let decoded;try{decoded=await auth.verifyIdToken(m[1],true);}catch{throw Object.assign(Error('invalid or expired session'),{status:401});}return decoded;}
  async function companyForUser(uid,tenantId){if(!isId(tenantId))throw Object.assign(Error('invalid tenant'),{status:400});const [member,tenant]=await Promise.all([tenants.doc(tenantId).collection('members').doc(uid).get(),tenants.doc(tenantId).get()]);if(!tenant.exists||!member.exists||member.data().active!==true)throw Object.assign(Error('access denied'),{status:403});return tenant.data();}
  return async function handler(req,res){try{
   const url=new URL(req.url,'http://localhost'),p=url.pathname;
+  if(req.method==='GET'&&p==='/'){res.writeHead(302,{location:'/console/','cache-control':'no-store'});return res.end();}
   if(req.method==='GET'&&p==='/health')return send(res,200,{ok:true,version:26,storage:'firestore',mode:'cloud'});
   if(req.method==='GET'&&['/console/','/console/index.html','/console/app.js','/console/firebase-config.js'].includes(p)){
     const name=p==='/console/'?'index.html':path.basename(p);
@@ -56,7 +58,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),agent=async()=>({re
     const snap=await tenants.where('memberUids','array-contains',user.uid).limit(100).get();
     const companies=[];
     for(const doc of snap.docs){const member=await doc.ref.collection('members').doc(user.uid).get();if(member.data()?.active===true)companies.push({id:doc.id,name:doc.data().name,role:member.data().role});}
-    return send(res,200,{companies,superAdmin:superAdmin(user)});
+    return send(res,200,{companies,superAdmin:isSuperAdmin(user)});
   }
   if(req.method==='GET'&&p==='/api/company/members'){
     const user=await userFromBearer(req),tenantId=url.searchParams.get('tenantId');
@@ -84,7 +86,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),agent=async()=>({re
     return send(res,200,{ok:true});
   }
   if(req.method==='POST'&&p==='/api/admin/whatsapp-channel'){
-    const user=await userFromBearer(req);if(!superAdmin(user))return send(res,403,{error:'super admin required'});
+    const user=await userFromBearer(req);if(!isSuperAdmin(user))return send(res,403,{error:'super admin required'});
     const b=await parseBody(req),tenantId=txt(b.tenantId,100),phoneNumberId=txt(b.phoneNumberId,30);
     if(!isId(tenantId)||!/^\d{5,30}$/.test(phoneNumberId))return send(res,400,{error:'invalid channel'});
     const ref=db.collection('brightAiWhatsappChannels').doc(phoneNumberId);
@@ -97,7 +99,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),agent=async()=>({re
   }
   if(req.method==='POST'&&p==='/api/admin/companies'){
     const user=await userFromBearer(req);
-    if(!superAdmin(user))return send(res,403,{error:'super admin required'});
+    if(!isSuperAdmin(user))return send(res,403,{error:'super admin required'});
     const b=await parseBody(req),name=txt(b.name,120),ownerUid=txt(b.ownerUid,128),plan=txt(b.plan,30);
     if(name.length<2||!Object.hasOwn(PLANS,plan)||!/^[-_a-zA-Z0-9]{6,128}$/.test(ownerUid))return send(res,400,{error:'invalid company data'});
     // Auth must contain the intended owner. No users are created without trusted admin review.
@@ -111,7 +113,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),agent=async()=>({re
   }
   if(req.method==='GET'&&p==='/api/admin/companies'){
     const user=await userFromBearer(req);
-    if(!superAdmin(user))return send(res,403,{error:'super admin required'});
+    if(!isSuperAdmin(user))return send(res,403,{error:'super admin required'});
     const snap=await tenants.limit(100).get();
     return send(res,200,{companies:snap.docs.map(d=>({id:d.id,name:d.data().name,plan:d.data().plan,subscriptionStatus:d.data().subscriptionStatus}))});
   }
@@ -234,7 +236,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),agent=async()=>({re
   // Subscription changes require a trusted super-admin. No automatic payment activation.
   if(req.method==='POST'&&p==='/api/admin/subscription'){
     const user=await userFromBearer(req);
-    if(!superAdmin(user))return send(res,403,{error:'super admin required'});
+    if(!isSuperAdmin(user))return send(res,403,{error:'super admin required'});
     const b=await parseBody(req),tenantId=txt(b.tenantId,100),plan=txt(b.plan,30),status=txt(b.status,30),renewalDate=txt(b.renewalDate,10);
     if(!isId(tenantId)||!Object.hasOwn(PLANS,plan)||!['active','suspended','trial'].includes(status)||!validDate(renewalDate))return send(res,400,{error:'invalid subscription'});
     const ref=tenants.doc(tenantId);if(!(await ref.get()).exists)return send(res,404,{error:'company not found'});
@@ -503,13 +505,14 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),agent=async()=>({re
     if(!isId(widgetId))return send(res,400,{error:'invalid widget'});
     const result=await tenants.where('widgetId','==',widgetId).limit(1).get();
     if(result.empty)return send(res,404,{error:'widget not found'});
-    const tenant=result.docs[0].data();return send(res,200,{name:tenant.name,enabled:active(tenant)});
+    const tenant=result.docs[0].data();return send(res,200,{name:tenant.name,enabled:active(tenant)&&process.env.BRIGHT_PUBLIC_CHAT_ENABLED!=='false'});
   }
   if(req.method==='GET'&&p==='/widget.js'){
     res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','cache-control':'public, max-age=300','x-content-type-options':'nosniff'});
     return res.end(fs.readFileSync(path.join(__dirname,'widget.js')));
   }
   if(req.method==='POST'&&p==='/api/public/message'){
+    if(process.env.BRIGHT_PUBLIC_CHAT_ENABLED==='false')return send(res,503,{error:'public chat disabled until integration acceptance'});
     const b=await parseBody(req),widgetId=txt(b.widgetId,100),message=txt(b.text,1500);
     if(!isId(widgetId)||!message)return send(res,400,{error:'widgetId and text required'});
     if(!throttle(`${req.socket.remoteAddress}:${widgetId}`))return send(res,429,{error:'slow down'});
@@ -536,8 +539,12 @@ function start(){if(!process.env.GOOGLE_CLOUD_PROJECT||!process.env.BRIGHT_FIREB
  const app=initializeApp({credential:applicationDefault(),projectId:process.env.BRIGHT_FIREBASE_PROJECT_ID});
  const admin={firestore:{FieldValue}};
  const agent=createAiAgent();
- const handler=makeService({admin,db:getFirestore(app),auth:getAuth(app),allowedOrigins:origins,agent});
- const port=Number(process.env.PORT||8080);http.createServer(handler).listen(port,()=>console.log(`Bright Ai V22 cloud service listening ${port}`));
+ const superAdminUids=new Set((process.env.BRIGHT_SUPER_ADMIN_UIDS||'').split(',').map(x=>x.trim()).filter(Boolean));
+ const handler=makeService({admin,db:getFirestore(app),auth:getAuth(app),allowedOrigins:origins,superAdminUids,agent});
+ const port=Number(process.env.PORT||8080),server=http.createServer(handler);
+ server.requestTimeout=30000;server.headersTimeout=10000;
+ server.listen(port,()=>console.log('Bright Ai V26 cloud service listening '+server.address().port));
+ return server;
 }
 if(require.main===module)start();
 module.exports={PLANS,isId,active,allowedOrigin,rateLimiter,agentSettings,superAdmin,makeService};

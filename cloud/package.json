@@ -3,12 +3,13 @@
   "version": "26.0.0",
   "private": true,
   "engines": {
-    "node": ">=22"
+    "node": "24.x"
   },
   "scripts": {
     "start": "node service.js",
     "test": "node test.js && node ai-agent.test.js && node whatsapp.test.js && node whatsapp-inbox.test.js && node v12-routes.test.js && node whatsapp-send.test.js && node v14.test.js && node v15.test.js && node order-intent.test.js && node billing-plans.test.js && node subscription-engine.test.js && node automation-policy.test.js && node inbox-workflow.test.js && node task-recovery.test.js && node outbound-guard.test.js && node readiness.test.js",
-    "readiness": "node readiness.js"
+    "readiness": "node readiness.js",
+    "build": "node build-apphosting.js"
   },
   "dependencies": {
     "firebase-admin": "14.5.0"
