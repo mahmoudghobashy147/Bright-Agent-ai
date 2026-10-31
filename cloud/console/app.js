@@ -3,12 +3,13 @@ import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut,sendPasswo
 import {firebaseConfig} from './firebase-config.js';
 const app=initializeApp(firebaseConfig),auth=getAuth(app);
 const el=id=>document.getElementById(id),status=(s,error=false)=>{el('status').textContent=s;el('status').className=error?'error':''};
-const show=(id,on)=>el(id).classList.toggle('hidden',!on);
+const show=(id,on)=>{el(id).classList.toggle('hidden',!on);if(id==='adminPanel')el('adminNav').classList.toggle('hidden',!on);};
 async function api(url,body){const u=auth.currentUser;if(!u)throw Error('سجّل الدخول الأول');const token=await u.getIdToken();const r=await fetch(url,{method:body?"POST":"GET",headers:{Authorization:`Bearer ${token}`,...(body?{"Content-Type":"application/json"}:{})},...(body?{body:JSON.stringify(body)}:{})});const j=await r.json();if(!r.ok)throw Error(j.error||'حدث خطأ');return j}
 function metric(name,value){const box=document.createElement('div');box.className='metric';const title=document.createElement('div');title.className='muted';title.textContent=name;const val=document.createElement('strong');val.textContent=String(value);box.append(title,val);return box}
 el('signin').addEventListener('click',async()=>{try{status('جاري التحقق...');await signInWithEmailAndPassword(auth,el('email').value,el('password').value);el('password').value='';status('تم تسجيل الدخول')}catch(e){status('تعذر تسجيل الدخول. راجع الحساب وكلمة المرور.',true)}});
 el('logout').addEventListener('click',()=>signOut(auth));
 onAuthStateChanged(auth,async u=>{
+ document.body.classList.toggle('signed-in',!!u);show('sidebar',!!u);navigate('overview');
  show('login',!u);show('dashboard',!!u);show('logout',!!u);show('adminPanel',false);
  for(const id of ['metrics','conversations','orders','members','drafts','whatsappInbox','reviewTasks','orderLeads','adminCompanies','billingInfo','invoices','checkoutLink'])el(id).replaceChildren();
  el('tenantId').replaceChildren(new Option('اختر شركتك',''));
@@ -167,3 +168,6 @@ el('sandboxCheckout').addEventListener('click',async()=>{
 });
 
 el('previewSavedReply').addEventListener('click',async()=>{const btn=el('previewSavedReply');btn.disabled=true;el('savedReplyResult').textContent='';try{const r=await api('/api/company/replies/preview',{tenantId:el('tenantId').value,text:el('replyTestText').value});el('savedReplyResult').textContent=(r.requiresReview?'تحتاج مراجعة: ':'رد محفوظ: ')+r.reply+' — لم يتم إرسال رسائل';}catch(e){status(e.message,true)}finally{btn.disabled=false}});
+
+function navigate(page){if(page==='admin'&&el('adminPanel').classList.contains('hidden'))return;document.querySelectorAll('[data-page]').forEach(v=>v.classList.toggle('active-view',v.dataset.page===page));document.querySelectorAll('.nav-item').forEach(b=>{const active=b.dataset.go===page;b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false');});const titles={overview:'نظرة عامة',replies:'الموظف والردود',orders:'الطلبات',inbox:'المحادثات',team:'فريق العمل',billing:'الاشتراك',admin:'إدارة المنصة'};el('pageTitle').textContent=titles[page]||titles.overview;}
+document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.go)));

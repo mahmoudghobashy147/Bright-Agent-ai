@@ -25,14 +25,17 @@ const {makeService}=require('../cloud/service');const {memoryStore}=require('../
   await page.waitForFunction(()=>document.getElementById('metrics').textContent.includes('شركة اختبار Bright'));
   await page.waitForFunction(()=>document.getElementById('status').textContent.includes('تم تحميل البيانات'));
   assert.equal(await page.locator('#adminPanel').isVisible(),false);
+  await page.locator('.nav-item[data-go="replies"]').click();
   await page.locator('#services').fill('خدمة جديدة للاختبار');await page.locator('#saveAgent').click();await page.waitForFunction(()=>document.getElementById('status').textContent.includes('حفظ الإعدادات'));
   assert.equal((await tenant.get()).data().agentSettings.services,'خدمة جديدة للاختبار');
+  await page.locator('.nav-item[data-go="orders"]').click();
   await page.locator('#orderCustomer').fill('عميل اختبار');await page.locator('#orderContact').fill('test-only');await page.locator('#orderDetails').fill('طلب تجريبي من واجهة Windows');await page.locator('#createOrder').click();
   await page.waitForFunction(()=>document.getElementById('orders').textContent.includes('طلب تجريبي من واجهة Windows'));
+  await page.locator('.nav-item[data-go="team"]').click();
   await page.locator('#memberUid').fill('staff001');await page.locator('#saveMember').click();await page.waitForFunction(()=>document.getElementById('status').textContent.includes('حفظ صلاحية الموظف'));
   assert.equal((await tenant.collection('members').doc('staff001').get()).data().active,true);
   await page.screenshot({path:'artifacts/windows-company-ui.png',fullPage:true});
-  await page.locator('#logout').click();await page.locator('#email').fill('admin@test.example');await page.locator('#password').fill('test-only');await page.locator('#signin').click();await page.waitForSelector('#adminPanel',{state:'visible'});
+  await page.locator('#logout').click();await page.locator('#email').fill('admin@test.example');await page.locator('#password').fill('test-only');await page.locator('#signin').click();await page.waitForSelector('#adminNav',{state:'visible'});await page.locator('#adminNav').click();await page.waitForSelector('#adminPanel',{state:'visible'});
   assert.equal(errors.length,0,errors.join('\n'));console.log('Installed setup + company/admin UI smoke passed with isolated Auth/storage doubles.');
  }finally{await electron.close();if(server)await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
