@@ -1,0 +1,10 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const source=fs.readFileSync(require.resolve('./service'),'utf8');
+for(const route of ['/api/company/order-from-whatsapp','/api/company/assign-order'])assert(source.includes(route));
+assert(source.includes("doc('wa_'+messageId)"),'conversion should reuse deterministic order ID');
+assert(source.includes('await companyForUser(user.uid,tenantId)'),'tenant authorization needed');
+assert(source.includes("['owner','admin'].includes(member.data()?.role)"),'manager-only assignment');
+assert(source.includes('staff.data()?.active!==true'),'active staff verification');
+console.log('V12 route static safety checks passed; live Firebase transaction tests not performed');

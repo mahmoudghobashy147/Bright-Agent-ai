@@ -1,0 +1,12 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {requestId,retryAdvice}=require('./outbound-guard');
+const a=requestId('abc123','مرحبا');
+assert.equal(a,requestId('abc123','  مرحبا  '));
+assert.notEqual(a,requestId('abc123','مرحبا!'));
+assert.notEqual(a,requestId('different','مرحبا'));
+assert.match(a,/^reply_[a-f0-9]{64}$/);
+assert.equal(retryAdvice('unknown'),'verify_delivery_before_retry');
+assert.equal(retryAdvice('sent'),'already_sent');
+assert.throws(()=>requestId('x','  '));
+console.log('Outbound idempotency helper tests passed');

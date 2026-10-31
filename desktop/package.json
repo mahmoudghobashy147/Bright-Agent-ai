@@ -1,0 +1,46 @@
+{
+  "name": "bright-ai-desktop",
+  "version": "26.0.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis",
+    "test": "node url-policy.test.js && node config.test.js"
+  },
+  "devDependencies": {
+    "electron": "45.2.1",
+    "electron-builder": "^26.0.0",
+    "playwright": "1.56.1"
+  },
+  "build": {
+    "appId": "com.brightai.desktop",
+    "productName": "Bright Ai",
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "url-policy.js",
+      "config.js",
+      "setup.html",
+      "setup.js"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "artifactName": "Bright-Ai-Setup.${ext}",
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

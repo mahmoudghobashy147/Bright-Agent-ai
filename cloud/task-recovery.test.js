@@ -1,0 +1,18 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {LEASE_MS,MAX_ATTEMPTS,stateForRecovery,claim,belongsToClaim}=require('./task-recovery');
+const now=1_000_000;
+const pending={status:'pending_preflight'};
+const first=claim(pending,'alice',now);
+assert.equal(first.status,'generating');assert.equal(first.attempts,1);
+assert.ok(belongsToClaim(first,first.claimToken));
+assert.equal(stateForRecovery(first,now+LEASE_MS-1).recoverable,false);
+assert.equal(stateForRecovery(first,now+LEASE_MS).recoverable,true);
+const second=claim(first,'bob',now+LEASE_MS);
+assert.ok(second);assert.notEqual(first.claimToken,second.claimToken);
+assert.equal(belongsToClaim(second,first.claimToken),false);
+assert.equal(stateForRecovery({status:'awaiting_review'},now).recoverable,false);
+assert.equal(claim({status:'failed',attempts:MAX_ATTEMPTS},'x',now),null);
+assert.equal(claim({status:'generating',attempts:MAX_ATTEMPTS,claimedAtMillis:0},'x',now),null);
+assert.equal(claim({status:'failed',attempts:1},'x',now).attempts,2);
+console.log('Task recovery tests OK');

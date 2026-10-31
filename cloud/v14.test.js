@@ -1,0 +1,11 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const source=fs.readFileSync(require('node:path').join(__dirname,'service.js'),'utf8');
+assert.match(source,/\/api\/company\/whatsapp\/draft/);
+assert.match(source,/companyForUser\(user\.uid,tenantId\)/);
+assert.match(source,/withinServiceWindow\(record\.receivedAtMillis\)/);
+assert.match(source,/status:'awaiting_review'/);
+assert.match(source,/sent:false/);
+assert.match(source,/draft\.mode!=='openai'/);
+console.log('V14 static safety assertions passed (not an integration test)');

@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // STAGED ONLY. Merge these paths into reviewed existing CRM rules.
+    // Broad existing allow rules can override these denials. Test the merged rules first.
+    match /brightAiTenants/{document=**} { allow read, write: if false; }
+    match /brightAiWhatsappChannels/{document=**} { allow read, write: if false; }
+    match /brightAiInvoices/{document=**} { allow read, write: if false; }
+    match /brightAiPaymentEvents/{document=**} { allow read, write: if false; }
+  }
+}

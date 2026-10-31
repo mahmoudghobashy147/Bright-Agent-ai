@@ -1,0 +1,10 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {orderIntent}=require('./order-intent');
+assert.equal(orderIntent('بكام المتجر الالكتروني؟'),null);
+assert.equal(orderIntent('عايز'),null);
+assert.equal(orderIntent('Hello, how much does your service cost?'),null);
+let lead=orderIntent('عايز أطلب متجر إلكتروني لشركتي وعايز أتكلم مع المبيعات');
+assert.ok(lead);assert.equal(lead.status,'pending_review');assert.equal(lead.requiresHumanReview,true);
+assert.ok(orderIntent('I want to book a website development service next month'));
+console.log('order intent tests passed');

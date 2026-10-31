@@ -1,0 +1,11 @@
+'use strict';
+const assert=require('node:assert/strict');
+const crypto=require('node:crypto');
+const {parseIncomingWhatsApp,verifyMetaSignature}=require('./whatsapp');
+const p={entry:[{changes:[{value:{metadata:{phone_number_id:'1234567890'},messages:[{id:'wamid.123',from:'201000000000',type:'text',text:{body:'محتاج عرض سعر'}},{id:'wamid.456',from:'201000000000',type:'image'}]}}]}]};
+const a=parseIncomingWhatsApp(p);
+assert.equal(a.length,1);assert.equal(a[0].phoneNumberId,'1234567890');
+const raw=Buffer.from(JSON.stringify(p)),secret='demo-app-secret',signature='sha256='+crypto.createHmac('sha256',secret).update(raw).digest('hex');
+assert.equal(verifyMetaSignature(raw,signature,secret),true);
+assert.equal(verifyMetaSignature(raw,signature,'wrong-secret'),false);
+console.log('WhatsApp parsing/signature tests passed');

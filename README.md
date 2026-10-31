@@ -1,3 +1,29 @@
-# Bright Ai
+# Bright Ai — V26
 
-Commercial SaaS development workspace. Not approved for production deployment. Customer sends, payments and legacy deletion require separate approval. Implementation and verification report will follow in the next commit.
+منصة خدمة عملاء متعددة الشركات للموقع وWhatsApp وWindows. مشروع Firebase المقصود: `bright-33420`.
+
+**الحالة: مرشح تطوير واختبار، غير معتمد للبيع أو الإنتاج.**
+
+| الباقة الشهرية | جنيه مصري | محاولات AI شهريًا |
+|---|---:|---:|
+| Starter | 499 | 500 |
+| Business | 999 | 2000 |
+| Pro | 1999 | 5000 |
+
+عداد ذري مشترك للموقع ومسودات WhatsApp. المحاولة الفاشلة قد تستهلك حصة لأنها قد تحمل تكلفة مزوّد.
+
+## الموجود
+
+- Firebase Auth + تحقق عضوية الشركات على الخادم؛ Super Admin منفصل؛ إدارة أعضاء الشركة والأوامر والإعدادات ومسودات واتساب.
+- تخزين جديد معزول بمسارات brightAi* دون ترحيل أو حذف تلقائي لبيانات CRM.
+- OpenAI Responses على الخادم؛ استقبال Meta موقع؛ إرسال يدوي مقفول افتراضيًا، مع منع تكرار محاولة الإرسال الغامضة.
+- Paymob sandbox مع HMAC وربط المبلغ والفاتورة وعدم تكرار الأثر. لا خصم حي أو دوري ولا تفعيل اشتراك من callback تجريبي.
+- تطبيق Electron بإعداد رابط HTTPS آمن؛ NSIS باسم `Bright-Ai-Setup.exe`؛ GitHub Actions للبناء والتثبيت واختبار شاشة الإعداد على Windows.
+
+## التشغيل والفحص
+
+`npm test` و`npm run scan` لا يحتاجان خدمات خارجية. اختبار Firestore emulator يُتخطى محليًا دون بيئته ويُشغل في CI.
+
+التفاصيل في [دليل الإعداد](docs/SETUP-AR.md)، [حالة التحقق والناقص](docs/VERIFICATION-AR.md)، [خطة فصل CRM](docs/CRM-SEPARATION-AR.md).
+
+لا ترفع .env أو مفاتيح Admin أو access tokens. إعداد Firebase Web في console مرئي للعملاء ولا يمنح صلاحيات Admin. لا تنشر قواعد Firestore على المشروع القديم قبل مراجعة قواعده الحالية واختبار دمج المسارات الجديدة.

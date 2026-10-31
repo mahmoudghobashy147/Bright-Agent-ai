@@ -1,0 +1,53 @@
+name: Verify and build Windows installer
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm test
+      - run: npm run scan
+      - run: npm install --prefix cloud --ignore-scripts
+      - run: npm audit --prefix cloud --omit=dev --audit-level=high
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Test real Firestore transactions and rules in isolated emulator
+        run: npx --yes firebase-tools emulators:exec --config firebase/emulator.json --project demo-bright-ai --only firestore "node --test tests/firestore.test.js"
+  windows:
+    needs: tests
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --prefix desktop
+      - run: npm audit --prefix desktop --audit-level=high
+      - run: npm run dist:win --prefix desktop -- --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Install and launch actual packaged application
+        shell: pwsh
+        run: ./scripts/windows-smoke.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Bright-Ai-Windows-Candidate
+          path: |
+            desktop/dist/Bright-Ai-Setup.exe
+            artifacts/windows-*
+            desktop/package-lock.json
+            cloud/package-lock.json
+          if-no-files-found: error
+          retention-days: 14

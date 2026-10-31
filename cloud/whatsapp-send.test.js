@@ -1,0 +1,4 @@
+const assert=require('node:assert/strict');
+const {withinServiceWindow,sendWhatsAppText}=require('./whatsapp-send');
+const now=Date.now();assert.equal(withinServiceWindow(now-1000,now),true);assert.equal(withinServiceWindow(now-24*3600000,now),false);assert.equal(withinServiceWindow(now+1000,now),false);
+(async()=>{let called=false;const x=await sendWhatsAppText({phoneNumberId:'123456789',to:'201001234567',text:'اهلا',token:'test',version:'v23.0',fetchImpl:async (url,opts)=>{called=true;assert.match(url,/graph.facebook.com/);assert.equal(JSON.parse(opts.body).text.body,'اهلا');return {ok:true,json:async()=>({messages:[{id:'wamid.fake'}]})}}});assert(called);assert.equal(x.messageId,'wamid.fake');console.log('WhatsApp outbound mock tests passed')})().catch(e=>{console.error(e);process.exitCode=1});

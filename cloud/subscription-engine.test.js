@@ -1,0 +1,14 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {decideEvent,startCheckout,isoDate}=require('./subscription-engine');
+const base={plan:'business',subscriptionStatus:'suspended'};
+assert.equal(startCheckout({tenantId:'tenant_123',plan:'business'}).status,'provider_not_connected');
+assert.equal(startCheckout({tenantId:'tenant_123',plan:'business'}).priceEGP,999);
+assert.equal(isoDate('2026-02-30'),false);
+const event={id:'processor_event_123',type:'payment_succeeded',plan:'business',amountMinor:99900,currency:'EGP',paidThrough:'2026-12-31'};
+assert.throws(()=>decideEvent({event,subscription:base}),/Verified/);
+assert.throws(()=>decideEvent({verified:true,event:{...event,amountMinor:49900},subscription:base}),/Amount mismatch/);
+assert.throws(()=>decideEvent({verified:true,event:{...event,currency:'USD'},subscription:base}),/Amount mismatch/);
+assert.equal(decideEvent({verified:true,event,subscription:base}).subscriptionStatus,'active');
+assert.equal(decideEvent({verified:true,event:{type:'payment_failed',id:'processor_event_124'},subscription:base}).subscriptionStatus,'past_due');
+console.log('Subscription state-machine tests passed');

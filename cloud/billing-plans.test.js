@@ -1,0 +1,1 @@
+const assert=require('node:assert/strict');const {PLANS,planFor}=require('./billing-plans');assert.equal(planFor('starter').priceEGP,499);assert.equal(planFor('business').replies,2000);assert.equal(planFor('pro').priceEGP,1999);assert.equal(planFor('__proto__'),null);assert.equal(Object.isFrozen(PLANS),true);console.log('billing catalog tests OK');
