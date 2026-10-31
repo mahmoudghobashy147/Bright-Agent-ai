@@ -11,6 +11,6 @@
     "readiness": "node readiness.js"
   },
   "dependencies": {
-    "firebase-admin": "^13.0.0"
+    "firebase-admin": "14.5.0"
   }
 }

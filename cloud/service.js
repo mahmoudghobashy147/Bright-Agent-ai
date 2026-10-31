@@ -26,7 +26,13 @@ const superAdmin=u=>u?.brightSuperAdmin===true;
 const active=subscriptionActive;
 const allowedOrigin=(origin,allowed)=>!origin||allowed.has(origin);
 function rateLimiter(max=12,period=60000){const m=new Map();return k=>{const n=Date.now(),a=(m.get(k)||[]).filter(t=>n-t<period);if(a.length>=max)return false;a.push(n);m.set(k,a);if(m.size>5000)for(const [key,t] of m)if(t.at(-1)<n-period)m.delete(key);return true;};}
-async function parseBody(req,maxBytes=10000){let v='',bytes=0;for await(const chunk of req){bytes+=chunk.length;if(bytes>maxBytes)throw Object.assign(Error('payload too large'),{status:413});v+=chunk;}try{return JSON.parse(v||'{}')}catch{throw Object.assign(Error('invalid JSON'),{status:400});}}
+async function parseBody(req,maxBytes=10000){
+ const chunks=[];let bytes=0;
+ for await(const chunk of req){bytes+=chunk.length;if(bytes>maxBytes)throw Object.assign(Error('payload too large'),{status:413});chunks.push(chunk);}
+ let value;try{value=JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}');}catch{throw Object.assign(Error('invalid JSON'),{status:400});}
+ if(!value||typeof value!=='object'||Array.isArray(value))throw Object.assign(Error('JSON object required'),{status:400});
+ return value;
+}
 function send(res,status,data){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-frame-options':'DENY'});res.end(JSON.stringify(data));}
 function makeService({admin,db,auth,allowedOrigins=new Set(),agent=async()=>({reply:'أهلًا بيك. تم استلام رسالتك التجريبية، وفريق العمل هيتابع معاك.',mode:'demo'})}){
  const throttle=rateLimiter();

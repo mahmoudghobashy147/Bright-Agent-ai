@@ -9,15 +9,15 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
       - run: npm test
       - run: npm run scan
       - run: npm install --prefix cloud --ignore-scripts
-      - run: npm audit --prefix cloud --omit=dev --audit-level=high
-      - uses: actions/setup-java@v4
+      - run: npm audit --prefix cloud --omit=dev --audit-level=moderate
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -28,8 +28,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
       - run: npm install --prefix desktop
