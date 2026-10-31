@@ -9,7 +9,7 @@ const crypto=require('node:crypto');
 const {verifyMetaSignature,parseIncomingWhatsApp,makeWhatsAppReply}=require('./whatsapp');
 const {sendWhatsAppText,withinServiceWindow}=require('./whatsapp-send');
 const {requestId,retryAdvice}=require('./outbound-guard');
-const {createAiAgent}=require('./ai-agent');
+const {createSavedReplyAgent,parseRules}=require('./saved-replies');
 const {orderIntent}=require('./order-intent');
 const {startCheckout}=require('./subscription-engine');
 const {normalizeAutomation,decideAutomation}=require('./automation-policy');
@@ -20,7 +20,7 @@ const isId=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{6,100}$/.test(x);
 const txt=(x,n)=>String(x??'').trim().slice(0,n);
 const monthlyKey=()=>new Date().toISOString().slice(0,7);
 const today=()=>new Date().toISOString().slice(0,10);
-const agentSettings=b=>({businessDescription:txt(b.businessDescription,1500),services:txt(b.services,2500),guidelines:txt(b.guidelines,2000),greeting:txt(b.greeting,500)});
+const agentSettings=b=>({savedReplies:(parseRules(b.savedReplies||''),b.savedReplies||''),businessDescription:txt(b.businessDescription,1500),services:txt(b.services,2500),guidelines:txt(b.guidelines,2000),greeting:txt(b.greeting,500)});
 const superAdmin=(u,allowedUids=new Set())=>u?.brightSuperAdmin===true||(typeof u?.uid==='string'&&allowedUids.has(u.uid));
 
 const active=subscriptionActive;
@@ -130,6 +130,13 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     const settings=agentSettings(b);
     await tenants.doc(tenantId).update({agentSettings:settings,updatedAt:admin.firestore.FieldValue.serverTimestamp()});
     return send(res,200,{settings});
+  }
+  if(req.method==='POST'&&p==='/api/company/replies/preview'){
+    const user=await userFromBearer(req),b=await parseBody(req);
+    const tenant=await companyForUser(user.uid,txt(b.tenantId,100));
+    const message=txt(b.text,1500);if(!message)return send(res,400,{error:'نص الاختبار مطلوب'});
+    const result=await createSavedReplyAgent()({message,tenant});
+    return send(res,200,{...result,sent:false,preview:true});
   }
   if(req.method==='GET'&&p==='/api/company'){
     const user=await userFromBearer(req),tenantId=url.searchParams.get('tenantId');
@@ -281,12 +288,12 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
       tx.update(ref,lease);return lease;
     });
     if(!claimed)return send(res,409,{error:'task already claimed or retry limit reached'});
-    let reply;
+    let reply,draftMode;
     try{
       await reserveAi({db,tenantRef:base,plans:PLANS});
       const draft=await agent({message:txt(inbox.data().text,1500),tenant});
-      if(!draft||draft.mode!=='openai'||!txt(draft.reply,2000))throw Error('live AI unavailable');
-      reply=txt(draft.reply,2000);
+      if(!draft||!['openai','saved_reply','saved_review'].includes(draft.mode)||!txt(draft.reply,2000))throw Error('live AI unavailable');
+      reply=txt(draft.reply,2000);draftMode=draft.mode;
     }catch(e){
       await db.runTransaction(async tx=>{
         const current=await tx.get(ref);
@@ -299,7 +306,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     await db.runTransaction(async tx=>{
       const [task,draft]=await Promise.all([tx.get(ref),tx.get(draftRef)]);
       if(!belongsToClaim(task.data(),claimed.claimToken))throw Object.assign(Error('task state changed'),{status:409});
-      if(!draft.exists)tx.create(draftRef,{sourceMessageId:original.inboundId,reply,createdBy:user.uid,mode:'openai',status:'awaiting_review',createdAt:admin.firestore.FieldValue.serverTimestamp()});
+      if(!draft.exists)tx.create(draftRef,{sourceMessageId:original.inboundId,reply,createdBy:user.uid,mode:draftMode,status:'awaiting_review',createdAt:admin.firestore.FieldValue.serverTimestamp()});
       tx.update(ref,{status:'awaiting_review',draftId:draftRef.id,sent:false});
     });
     return send(res,201,{draftId:draftRef.id,reply,status:'awaiting_review',sent:false});
@@ -320,7 +327,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     let draft;
     try{await reserveAi({db,tenantRef:tenants.doc(tenantId),plans:PLANS});draft=await agent({message:txt(record.text,1500),tenant});}
     catch(e){return send(res,e.status||503,{error:e.status?e.message:'AI draft unavailable'});}
-    if(!draft||draft.mode!=='openai')return send(res,503,{error:'live AI not configured; draft not generated'});
+    if(!draft||!['openai','saved_reply','saved_review'].includes(draft.mode))return send(res,503,{error:'live AI not configured; draft not generated'});
     const reply=txt(draft.reply,2000);
     if(!reply)return send(res,503,{error:'empty AI draft'});
     const draftRef=tenants.doc(tenantId).collection('whatsappDrafts').doc();
@@ -525,8 +532,8 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     // Fresh conversation per request: avoids accepting spoofed conversation IDs or exposing existing visitor messages.
     let answer;
     try{answer=await agent({message,tenant});}catch(e){console.error('Agent failure',e.message);answer={reply:'عذرًا، الخدمة مش متاحة حاليًا. هنطلب من الفريق يتابع معاك.',mode:'fallback'};}
-    await conversationRef.set({source:'website',createdAt:admin.firestore.FieldValue.serverTimestamp(),message,reply:txt(answer.reply,2000),mode:txt(answer.mode,20)});
-    return send(res,answer.mode==='openai'?200:503,{reply:txt(answer.reply,2000),mode:answer.mode,requestId:conversationRef.id});
+    await conversationRef.set({source:'website',createdAt:admin.firestore.FieldValue.serverTimestamp(),message,reply:txt(answer.reply,2000),mode:txt(answer.mode,20),requiresReview:answer.requiresReview===true});
+    return send(res,['openai','saved_reply','saved_review'].includes(answer.mode)?200:503,{reply:txt(answer.reply,2000),mode:answer.mode,requiresReview:answer.requiresReview===true,requestId:conversationRef.id});
   }
   return send(res,404,{error:'not found'});
  }catch(e){console.error('Cloud request failure',e.message);return send(res,e.status||500,{error:e.status?e.message:'internal error'});}}
@@ -538,7 +545,7 @@ function start(){if(!process.env.GOOGLE_CLOUD_PROJECT||!process.env.BRIGHT_FIREB
  const {getAuth}=require('firebase-admin/auth');
  const app=initializeApp({credential:applicationDefault(),projectId:process.env.BRIGHT_FIREBASE_PROJECT_ID});
  const admin={firestore:{FieldValue}};
- const agent=createAiAgent();
+ const agent=createSavedReplyAgent();
  const superAdminUids=new Set((process.env.BRIGHT_SUPER_ADMIN_UIDS||'').split(',').map(x=>x.trim()).filter(Boolean));
  const handler=makeService({admin,db:getFirestore(app),auth:getAuth(app),allowedOrigins:origins,superAdminUids,agent});
  const port=Number(process.env.PORT||8080),server=http.createServer(handler);

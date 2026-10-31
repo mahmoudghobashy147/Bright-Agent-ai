@@ -7,5 +7,5 @@ assert.match(source,/companyForUser\(user\.uid,tenantId\)/);
 assert.match(source,/withinServiceWindow\(record\.receivedAtMillis\)/);
 assert.match(source,/status:'awaiting_review'/);
 assert.match(source,/sent:false/);
-assert.match(source,/draft\.mode!=='openai'/);
+assert.match(source,/!\['openai','saved_reply','saved_review'\]\.includes\(draft\.mode\)/);
 console.log('V14 static safety assertions passed (not an integration test)');

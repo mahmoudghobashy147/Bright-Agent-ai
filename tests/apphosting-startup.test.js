@@ -22,8 +22,9 @@ test('deployed server contract: real Auth tokens, tenant lifecycle, orders and d
  const created=await api('/api/admin/companies',adminToken,{name:'شركة اختبار العزل',ownerUid:'company-owner',plan:'starter'});assert.equal(created.status,201);const tenantId=created.data.tenantId;
  assert.equal((await api('/api/me/companies',ownerToken)).data.companies[0].id,tenantId);
  assert.equal((await api('/api/admin/subscription',adminToken,{tenantId,plan:'starter',status:'trial',renewalDate:'2099-01-01'})).status,200);
- assert.equal((await api('/api/company/agent',ownerToken,{tenantId,services:'خدمة اختبار فعلية في المحاكي'})).status,200);
+ assert.equal((await api('/api/company/agent',ownerToken,{tenantId,services:'خدمة اختبار فعلية في المحاكي',savedReplies:'مواعيد العمل | من 9 إلى 5'})).status,200);
  assert.equal((await api('/api/company/agent?tenantId='+tenantId,ownerToken)).data.settings.services,'خدمة اختبار فعلية في المحاكي');
+ const preview=await api('/api/company/replies/preview',ownerToken,{tenantId,text:'مواعيد العمل'});assert.equal(preview.status,200);assert.equal(preview.data.reply,'من 9 إلى 5');assert.equal(preview.data.sent,false);
  assert.equal((await api('/api/company/orders',ownerToken,{tenantId,customerName:'عميل الاختبار',contact:'emulator-only',details:'طلب عبر خادم Node وFirestore'})).status,201);
  assert.equal((await api('/api/company/orders?tenantId='+tenantId,ownerToken)).data.orders.length,1);
  assert.equal((await api('/api/public/message',null,{widgetId:created.data.widgetId,text:'not sent'})).status,503);
