@@ -530,9 +530,13 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),agent=async()=>({re
 }
 function start(){if(!process.env.GOOGLE_CLOUD_PROJECT||!process.env.BRIGHT_FIREBASE_PROJECT_ID||process.env.GOOGLE_CLOUD_PROJECT!==process.env.BRIGHT_FIREBASE_PROJECT_ID)throw Error('Matching GOOGLE_CLOUD_PROJECT and BRIGHT_FIREBASE_PROJECT_ID required');
  const origins=new Set((process.env.BRIGHT_ALLOWED_ORIGINS||'').split(',').map(x=>x.trim()).filter(Boolean));if(!origins.size)throw Error('BRIGHT_ALLOWED_ORIGINS required for cloud use');
- const admin=require('firebase-admin');admin.initializeApp({credential:admin.credential.applicationDefault(),projectId:process.env.BRIGHT_FIREBASE_PROJECT_ID});
+ const {initializeApp,applicationDefault}=require('firebase-admin/app');
+ const {getFirestore,FieldValue}=require('firebase-admin/firestore');
+ const {getAuth}=require('firebase-admin/auth');
+ const app=initializeApp({credential:applicationDefault(),projectId:process.env.BRIGHT_FIREBASE_PROJECT_ID});
+ const admin={firestore:{FieldValue}};
  const agent=createAiAgent();
- const handler=makeService({admin,db:admin.firestore(),auth:admin.auth(),allowedOrigins:origins,agent});
+ const handler=makeService({admin,db:getFirestore(app),auth:getAuth(app),allowedOrigins:origins,agent});
  const port=Number(process.env.PORT||8080);http.createServer(handler).listen(port,()=>console.log(`Bright Ai V22 cloud service listening ${port}`));
 }
 if(require.main===module)start();

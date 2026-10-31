@@ -15,7 +15,7 @@ jobs:
           node-version: '24'
       - run: npm test
       - run: npm run scan
-      - run: npm install --prefix cloud --ignore-scripts
+      - run: npm ci --prefix cloud --ignore-scripts
       - run: npm audit --prefix cloud --omit=dev --audit-level=moderate
       - uses: actions/setup-java@v5
         with:
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
-      - run: npm install --prefix desktop
+      - run: npm ci --prefix desktop
       - run: npm audit --prefix desktop --audit-level=high
       - run: npm run dist:win --prefix desktop -- --publish never
         env:

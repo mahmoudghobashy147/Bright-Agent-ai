@@ -3,8 +3,10 @@
 const fs=require('node:fs');const path=require('node:path');
 (async()=>{
  if(process.env.BRIGHT_FIREBASE_PROJECT_ID!=='bright-33420')throw Error('Expected project bright-33420');
- const admin=require('../cloud/node_modules/firebase-admin');admin.initializeApp({credential:admin.credential.applicationDefault(),projectId:'bright-33420'});
- const db=admin.firestore();const rows=[];
+ const sdk=require('node:module').createRequire(path.resolve(__dirname,'../cloud/package.json'));
+ const {initializeApp,applicationDefault}=sdk('firebase-admin/app'),{getFirestore}=sdk('firebase-admin/firestore');
+ const app=initializeApp({credential:applicationDefault(),projectId:'bright-33420'});
+ const db=getFirestore(app);const rows=[];
  for(const col of await db.listCollections()){
   const count=await col.count().get();rows.push({name:col.id,count:count.data().count,classification:col.id.startsWith('brightAi')?'protected-bright-ai':'unreviewed-legacy-candidate',approvedForDeletion:false});
  }

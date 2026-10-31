@@ -14,8 +14,9 @@ const {makeService}=require('../cloud/service');const {memoryStore}=require('../
   const db=memoryStore(),tenant=db.collection('brightAiTenants').doc('company001');
   await tenant.set({name:'شركة اختبار Bright',plan:'starter',subscriptionStatus:'trial',renewalDate:'2099-01-01',memberUids:['owner001'],agentSettings:{services:'خدمة اختبار'}});
   await tenant.collection('members').doc('owner001').set({active:true,role:'owner'});
-  server=http.createServer(makeService({db,admin:{firestore:{FieldValue:{serverTimestamp:()=>new Date().toISOString()}}},auth:{verifyIdToken:async uid=>({uid,brightSuperAdmin:uid==='superuser'}),getUser:async uid=>({uid})}}));
-  await new Promise(r=>server.listen(0,'127.0.0.1',r));const url='http://127.0.0.1:'+server.address().port+'/console/';
+  const origins=new Set();
+  server=http.createServer(makeService({db,allowedOrigins:origins,admin:{firestore:{FieldValue:{serverTimestamp:()=>new Date().toISOString()}}},auth:{verifyIdToken:async uid=>({uid,brightSuperAdmin:uid==='superuser'}),getUser:async uid=>({uid})}}));
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));const url='http://127.0.0.1:'+server.address().port+'/console/';origins.add(new URL(url).origin);
   await page.route('https://www.gstatic.com/firebasejs/**/firebase-app.js',route=>route.fulfill({contentType:'text/javascript',body:'export const initializeApp=()=>({});'}));
   await page.route('https://www.gstatic.com/firebasejs/**/firebase-auth.js',route=>route.fulfill({contentType:'text/javascript',body:`let callback;const auth={currentUser:null};export const getAuth=()=>auth;export const onAuthStateChanged=(a,cb)=>{callback=cb;queueMicrotask(()=>cb(null));};export const signInWithEmailAndPassword=async(a,email)=>{const uid=email==='admin@test.example'?'superuser':'owner001';auth.currentUser={uid,getIdToken:async()=>uid};await callback(auth.currentUser);};export const signOut=async()=>{auth.currentUser=null;await callback(null);};export const sendPasswordResetEmail=async()=>{};`}));
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
