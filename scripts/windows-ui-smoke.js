@@ -26,12 +26,17 @@ const {makeService}=require('../cloud/service');const {memoryStore}=require('../
   await page.waitForFunction(()=>document.getElementById('status').textContent.includes('تم تحميل البيانات'));
   assert.equal(await page.locator('#adminPanel').isVisible(),false);
   await page.locator('.nav-item[data-go="replies"]').click();
-  await page.locator('#services').fill('خدمة جديدة للاختبار');await page.locator('#saveAgent').click();await page.waitForFunction(()=>document.getElementById('status').textContent.includes('حفظ الإعدادات'));
+  await page.locator('#advancedAgent summary').click();
+  await page.locator('#services').fill('خدمة جديدة للاختبار');await page.locator('#replyRows input').first().fill('مواعيد العمل');await page.locator('#replyRows textarea').first().fill('من 9 إلى 5');await page.locator('#saveAgent').click();await page.waitForFunction(()=>document.getElementById('status').textContent.includes('حفظ الإعدادات'));
   assert.equal((await tenant.get()).data().agentSettings.services,'خدمة جديدة للاختبار');
+  assert.equal((await tenant.get()).data().agentSettings.savedReplies,'مواعيد العمل | من 9 إلى 5');
+  await page.locator('#replyTestText').fill('مواعيد العمل');await page.locator('#previewSavedReply').click();await page.waitForFunction(()=>document.getElementById('savedReplyResult').textContent.includes('من 9 إلى 5')); 
   await page.locator('.nav-item[data-go="orders"]').click();
+  await page.locator('#newOrderPanel summary').click();
   await page.locator('#orderCustomer').fill('عميل اختبار');await page.locator('#orderContact').fill('test-only');await page.locator('#orderDetails').fill('طلب تجريبي من واجهة Windows');await page.locator('#createOrder').click();
   await page.waitForFunction(()=>document.getElementById('orders').textContent.includes('طلب تجريبي من واجهة Windows'));
   await page.locator('.nav-item[data-go="team"]').click();
+  await page.locator('#newMemberPanel summary').click();
   await page.locator('#memberUid').fill('staff001');await page.locator('#saveMember').click();await page.waitForFunction(()=>document.getElementById('status').textContent.includes('حفظ صلاحية الموظف'));
   assert.equal((await tenant.collection('members').doc('staff001').get()).data().active,true);
   await page.screenshot({path:'artifacts/windows-company-ui.png',fullPage:true});
