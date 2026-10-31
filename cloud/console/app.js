@@ -1,6 +1,7 @@
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
 import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut,sendPasswordResetEmail} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
 import {firebaseConfig} from './firebase-config.js';
+let localSyncGeneration=0,localBinding=Promise.resolve(),localIncoming=Promise.resolve();
 const app=initializeApp(firebaseConfig),auth=getAuth(app);
 const el=id=>document.getElementById(id),status=(s,error=false)=>{el('status').textContent=s;el('status').className=error?'error':''};
 const show=(id,on)=>{el(id).classList.toggle('hidden',!on);if(id==='adminPanel')el('adminNav').classList.toggle('hidden',!on);};
@@ -9,6 +10,7 @@ function metric(name,value){const box=document.createElement('div');box.classNam
 el('signin').addEventListener('click',async()=>{try{status('جاري التحقق...');await signInWithEmailAndPassword(auth,el('email').value,el('password').value);el('password').value='';status('تم تسجيل الدخول')}catch(e){status('تعذر تسجيل الدخول. راجع الحساب وكلمة المرور.',true)}});
 el('logout').addEventListener('click',()=>signOut(auth));
 onAuthStateChanged(auth,async u=>{
+ stopLocalSync();
  document.body.classList.toggle('signed-in',!!u);show('sidebar',!!u);show('companyBar',!!u);navigate('overview');
  show('login',!u);show('dashboard',!!u);show('logout',!!u);show('adminPanel',false);
  for(const id of ['metrics','conversations','orders','members','drafts','whatsappInbox','reviewTasks','orderLeads','adminCompanies','billingInfo','invoices','checkoutLink'])el(id).replaceChildren();
@@ -16,7 +18,7 @@ onAuthStateChanged(auth,async u=>{
  if(!u){status('');return;}
  try{const data=await api('/api/me/companies');if(auth.currentUser?.uid!==u.uid)return;show('adminPanel',data.superAdmin);for(const c of data.companies)el('tenantId').append(new Option(c.name+' — '+c.role,c.id));if(data.companies.length===1){el('tenantId').value=data.companies[0].id;el('load').click();}if(data.superAdmin)await listCompanies();}catch(e){status('تعذر تحميل الشركات: '+e.message,true);}
 });
-el('tenantId').addEventListener('change',()=>{el('savedReplyResult').textContent='';for(const id of ['metrics','conversations','orders','members','drafts','whatsappInbox','reviewTasks','orderLeads','billingInfo','invoices','checkoutLink'])el(id).replaceChildren();for(const key of ['businessDescription','services','guidelines','greeting','savedReplies'])el(key).value='';renderReplyRows();el('load').click();});
+el('tenantId').addEventListener('change',()=>{stopLocalSync();el('savedReplyResult').textContent='';for(const id of ['metrics','conversations','orders','members','drafts','whatsappInbox','reviewTasks','orderLeads','billingInfo','invoices','checkoutLink'])el(id).replaceChildren();for(const key of ['businessDescription','services','guidelines','greeting','savedReplies'])el(key).value='';renderReplyRows();el('load').click();});
 el('load').addEventListener('click',async()=>{const id=el('tenantId').value.trim();if(!/^[a-zA-Z0-9_-]{6,100}$/.test(id)){status('معرّف الشركة غير صالح',true);return}el('load').disabled=true;try{const q=encodeURIComponent(id);const [company,history]=await Promise.all([api(`/api/company?tenantId=${q}`),api(`/api/company/conversations?tenantId=${q}`)]);const m=el('metrics');m.replaceChildren(metric('الشركة',company.tenant.name),metric('الباقة',company.tenant.plan),metric('حالة الاشتراك',company.tenant.subscriptionStatus),metric('الاستخدام هذا الشهر',history.usage.reserved));const c=el('conversations');c.replaceChildren();for(const record of history.conversations){const div=document.createElement('div');div.className='conversation';const question=document.createElement('p'),answer=document.createElement('p');question.textContent='العميل: '+record.message;answer.textContent='Bright Ai: '+record.reply;div.append(question,answer);c.append(div)}if(!history.conversations.length)c.textContent='لا توجد محادثات حاليًا';const a=await api(`/api/company/agent?tenantId=${q}`);for(const key of ['businessDescription','services','guidelines','greeting','savedReplies'])el(key).value=a.settings[key]||'';renderReplyRows();try{const a=await api(`/api/company/automation?tenantId=${q}`);el('automationMode').value=a.settings.mode}catch{}status('تم تحميل البيانات')}catch(e){el('metrics').replaceChildren();el('conversations').replaceChildren();status('تعذر عرض الشركة أو لا تملك صلاحية الوصول.',true)}finally{el('load').disabled=false}});
 
 el('saveAgent').addEventListener('click',async()=>{try{const tenantId=el('tenantId').value.trim(),body={tenantId};for(const k of ['businessDescription','services','guidelines','greeting','savedReplies'])body[k]=el(k).value;await api('/api/company/agent',body);status('تم حفظ الإعدادات')}catch(e){status('تعذّر الحفظ: '+e.message,true)}});
@@ -68,7 +70,7 @@ el('loadWhatsapp').addEventListener('click',async()=>{
         try{const result=await api('/api/company/whatsapp/draft',{tenantId,messageId:m.id});status('تم إنشاء مسودة. راجعها قبل الإرسال.');item.append(replyButton(tenantId,m.id,result.reply))}
         catch(e){status('تعذر إنشاء المسودة: '+e.message,true)}finally{draft.disabled=false}
       });
-      item.append(label,input,manual,draft);host.append(item);
+      if(m.source==='local_qr'){const note=document.createElement('p');note.textContent='مزامنة QR — الرد محفوظ في تبويب المسودات للمراجعة. الإرسال مغلق.';item.append(label,note);}else item.append(label,input,manual,draft);host.append(item);
     }
     if(!r.messages.length)host.textContent='لا توجد رسائل واردة';
   }catch(e){status('تعذر عرض رسائل واتساب: '+e.message,true)}
@@ -82,7 +84,7 @@ el('loadDrafts').addEventListener('click',async()=>{
       const card=document.createElement('div');card.className='conversation';
       const body=document.createElement('p');body.textContent=d.reply;
       const state=document.createElement('small');state.textContent='حالة المسودة: '+d.status;
-      card.append(body,state,replyButton(tenantId,d.sourceMessageId,d.reply));host.append(card);
+      card.append(body,state);if(d.source==='local_qr'){const note=document.createElement('p');note.textContent='مسودة ناتجة من المزامنة المحلية — الإرسال مغلق أثناء الاختبار.';card.append(note);}else card.append(replyButton(tenantId,d.sourceMessageId,d.reply));host.append(card);
     }
     if(!result.drafts.length)host.textContent='لا توجد مسودات محفوظة';
   }catch(e){status('تعذر تحميل المسودات: '+e.message,true)}
@@ -185,3 +187,35 @@ function addReplyRow(question='',answer=''){
 function renderReplyRows(){el('replyRows').replaceChildren();for(const line of el('savedReplies').value.split(/\r?\n/).filter(x=>x.trim())){const at=line.indexOf('|');addReplyRow(line.slice(0,at).trim(),line.slice(at+1).trim());}if(!el('replyRows').children.length)addReplyRow();}
 el('addSavedReply').addEventListener('click',()=>addReplyRow());
 document.querySelectorAll('[data-inbox-go]').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('[data-inbox]').forEach(p=>p.classList.toggle('inbox-active',p.dataset.inbox===btn.dataset.inboxGo));document.querySelectorAll('[data-inbox-go]').forEach(b=>b.setAttribute('aria-selected',String(b===btn)));}));
+
+function localStatus(text,qr=null){el('localWaState').textContent=text;el('localWaQr').classList.toggle('hidden',!qr);if(qr&&/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(qr))el('localWaQr').src=qr;else el('localWaQr').removeAttribute('src');}
+function stopLocalSync(){localSyncGeneration++;localBinding=Promise.resolve();el('localWaLog').textContent='';localStatus('غير متصل');if(window.brightWhatsApp)window.brightWhatsApp.stop().catch(()=>{});}
+el('stopLocalWa').addEventListener('click',()=>stopLocalSync());
+el('startLocalWa').addEventListener('click',async()=>{
+ if(!window.brightWhatsApp){localStatus('المزامنة تحتاج نسخة Windows المحدثة؛ فتح واتساب في المتصفح وحده لا يزامن الرسائل.');return;}
+ const tenantId=el('tenantId').value,uid=auth.currentUser?.uid;if(!tenantId||!uid){localStatus('اختر شركتك وسجل الدخول أولًا');return;}
+ const btn=el('startLocalWa');btn.disabled=true;
+ try{await api('/api/company/members?tenantId='+encodeURIComponent(tenantId));stopLocalSync();localStatus('جاري تجهيز اتصال واتساب…');await window.brightWhatsApp.start({tenantId,uid});}
+ catch(e){localStatus('تعذر بدء المزامنة: '+e.message);}finally{btn.disabled=false;}
+});
+if(window.brightWhatsApp){
+ const matches=data=>data.uid===auth.currentUser?.uid&&data.tenantId===el('tenantId').value;
+ window.brightWhatsApp.onStatus(data=>{
+  if(!matches(data))return;
+  if(data.state==='qr')localStatus('امسح الكود من موبايلك: الأجهزة المرتبطة ← ربط جهاز',data.qr);
+  else if(data.state==='connected'){
+   const generation=localSyncGeneration;localStatus('تم اتصال واتساب. جاري ربطه بالشركة…');
+   localBinding=api('/api/company/local-whatsapp/bind',{tenantId:data.tenantId,account:data.account,sessionId:data.sessionId}).then(()=>{if(generation===localSyncGeneration)localStatus('متصل بالشركة — مزامنة الرسائل الجديدة وتجهيز الردود للمراجعة. الإرسال مغلق.');}).catch(e=>{if(generation===localSyncGeneration){localStatus('تعذر ربط الشركة: '+e.message);window.brightWhatsApp.stop().catch(()=>{});}throw e;});localBinding.catch(()=>{});
+  }else if(data.state==='connecting')localStatus('جاري الاتصال بواتساب…');
+  else localStatus(data.error||'انقطع الاتصال. اضغط بدء المزامنة لإعادة الاتصال.');
+ });
+ window.brightWhatsApp.onIncoming(data=>{
+  if(!matches(data))return;const generation=localSyncGeneration;
+  localIncoming=localIncoming.catch(()=>{}).then(async()=>{
+   await localBinding;if(generation!==localSyncGeneration||!matches(data))return;
+   await api('/api/company/local-whatsapp/inbox',{tenantId:data.tenantId,account:data.account,sessionId:data.sessionId,messageId:data.messageId,from:data.from,text:data.text,timestamp:data.timestamp});
+   await window.brightWhatsApp.ack(data);
+   el('localWaLog').textContent='تمت مزامنة رسالة وتجهيز رد للمراجعة. لم يتم إرسال رسالة للعميل.';el('loadWhatsapp').click();
+  }).catch(e=>{if(generation===localSyncGeneration)el('localWaLog').textContent='رسالة معلّقة محليًا؛ ستتم إعادة المحاولة: '+e.message;});
+ });
+}

@@ -1,9 +1,10 @@
 'use strict';
-const {app,BrowserWindow,dialog,session,ipcMain,shell}=require('electron');
+const {app,BrowserWindow,dialog,session,ipcMain,shell,safeStorage}=require('electron');
 const fs=require('node:fs');
 const path=require('node:path');
 const {cloudTarget}=require('./config');
 const {createWhatsAppLauncher}=require('./whatsapp-window');
+const {createLocalWhatsApp}=require('./local-whatsapp');
 const {allowedNavigation}=require('./url-policy');
 let win,target,configPath;
 function settings(){
@@ -32,6 +33,12 @@ app.whenReady().then(()=>{
   fs.writeFileSync(configPath,JSON.stringify({url}));return {ok:true};
  });
  const openWhatsApp=createWhatsAppLauncher({shell,dialog});
+ const localWhatsApp=createLocalWhatsApp({safeStorage,userData:app.getPath('userData'),emit:(kind,data)=>{if(!win.isDestroyed())win.webContents.send('bright:wa:'+kind,data);}});
+ const trustedConsole=event=>{try{return event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame&&target&&new URL(event.senderFrame.url).origin===target.origin&&new URL(event.senderFrame.url).pathname.startsWith('/console/');}catch{return false;}};
+ ipcMain.handle('bright:wa:start',async(event,input)=>{if(!trustedConsole(event))throw Error('Access denied');return localWhatsApp.start({tenantId:String(input?.tenantId||''),uid:String(input?.uid||''),origin:target.origin});});
+ ipcMain.handle('bright:wa:ack',(event,input)=>{if(!trustedConsole(event))throw Error('Access denied');return localWhatsApp.ack(input);});
+ ipcMain.handle('bright:wa:stop',event=>{if(!trustedConsole(event))throw Error('Access denied');return localWhatsApp.stop();});
+ win.webContents.on('will-navigate',()=>localWhatsApp.stop());win.on('closed',()=>localWhatsApp.stop());
  const {Menu}=require('electron');
  Menu.setApplicationMenu(Menu.buildFromTemplate([{label:'Bright Ai',submenu:[{label:'واتساب — ربط QR في متصفح الجهاز',click:()=>openWhatsApp()},{type:'separator'},{label:'إعداد عنوان الخادم',click:settings},{label:'إعادة التحميل',role:'reload'},{type:'separator'},{role:'quit',label:'خروج'}]}]));
  let saved;try{saved=JSON.parse(fs.readFileSync(configPath,'utf8')).url;}catch{}

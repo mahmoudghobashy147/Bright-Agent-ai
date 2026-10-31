@@ -11,6 +11,7 @@ const {sendWhatsAppText,withinServiceWindow}=require('./whatsapp-send');
 const {requestId,retryAdvice}=require('./outbound-guard');
 const {createSavedReplyAgent,parseRules}=require('./saved-replies');
 const {orderIntent}=require('./order-intent');
+const {localWhatsApp}=require('./local-whatsapp');
 const {startCheckout}=require('./subscription-engine');
 const {normalizeAutomation,decideAutomation}=require('./automation-policy');
 const {buildReviewTask,createReviewTask}=require('./inbox-workflow');
@@ -53,6 +54,10 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
   if(!allowedOrigin(req.headers.origin,allowedOrigins))return send(res,403,{error:'origin not permitted'});
   if(req.headers.origin){res.setHeader('Access-Control-Allow-Origin',req.headers.origin);res.setHeader('Vary','Origin');}
   if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':req.headers.origin||'','Access-Control-Allow-Headers':'Authorization, Content-Type','Access-Control-Allow-Methods':'GET, POST, OPTIONS'});return res.end();}
+  if(req.method==='POST'&&['/api/company/local-whatsapp/bind','/api/company/local-whatsapp/inbox'].includes(p)){
+    const user=await userFromBearer(req),body=await parseBody(req),tenant=await companyForUser(user.uid,body.tenantId);
+    return send(res,200,await localWhatsApp({action:p.endsWith('/bind')?'bind':'inbox',body,user,tenant,db,admin,plans:PLANS}));
+  }
   if(req.method==='GET'&&p==='/api/me/companies'){
     const user=await userFromBearer(req);
     const snap=await tenants.where('memberUids','array-contains',user.uid).limit(100).get();
@@ -321,6 +326,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     if(!recordSnap.exists)return send(res,404,{error:'message not found'});
     if(!active(tenant))return send(res,403,{error:'subscription inactive'});
     const record=recordSnap.data();
+    if(record.source==='local_qr')return send(res,409,{error:'ردود QR للمراجعة فقط؛ إرسال Meta لا ينطبق عليها'});
     if(!withinServiceWindow(record.receivedAtMillis))return send(res,403,{error:'service window expired'});
     // Use the same tenant-scoped assistant settings as website replies.
     // A preview does not make an external API send request to WhatsApp.
@@ -338,13 +344,13 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     const user=await userFromBearer(req),tenantId=url.searchParams.get('tenantId');
     await companyForUser(user.uid,tenantId);
     const snap=await tenants.doc(tenantId).collection('whatsappDrafts').orderBy('createdAt','desc').limit(50).get();
-    return send(res,200,{drafts:snap.docs.map(d=>({id:d.id,sourceMessageId:d.data().sourceMessageId,reply:txt(d.data().reply,2000),status:d.data().status,createdAt:d.data().createdAt?.toDate?.()?.toISOString()||null}))});
+    return send(res,200,{drafts:snap.docs.map(d=>({id:d.id,sourceMessageId:d.data().sourceMessageId,reply:txt(d.data().reply,2000),source:d.data().source||'meta',status:d.data().status,createdAt:d.data().createdAt?.toDate?.()?.toISOString()||null}))});
   }
   if(req.method==='GET'&&p==='/api/company/whatsapp-inbox'){
     const user=await userFromBearer(req),tenantId=url.searchParams.get('tenantId');
     await companyForUser(user.uid,tenantId);
     const snap=await tenants.doc(tenantId).collection('whatsappInbox').orderBy('createdAt','desc').limit(50).get();
-    return send(res,200,{messages:snap.docs.map(d=>({id:d.id,from:txt(d.data().from,40),text:txt(d.data().text,1500),status:d.data().status||'new',createdAt:d.data().createdAt?.toDate?.()?.toISOString()||null}))});
+    return send(res,200,{messages:snap.docs.map(d=>({id:d.id,from:txt(d.data().from,40),source:d.data().source||'meta',text:txt(d.data().text,1500),status:d.data().status||'new',createdAt:d.data().createdAt?.toDate?.()?.toISOString()||null}))});
   }
   // Explicitly approved MANUAL WhatsApp reply. No AI autoposting and no templates.
   if(req.method==='POST'&&p==='/api/company/whatsapp/reply'){
@@ -355,6 +361,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     const ref=tenants.doc(tenantId).collection('whatsappInbox').doc(messageId),snap=await ref.get();
     if(!snap.exists)return send(res,404,{error:'message not found'});
     const record=snap.data();
+    if(record.source==='local_qr')return send(res,409,{error:'إرسال QR غير مفعل؛ هذه مسودة للمراجعة فقط'});
     if(!withinServiceWindow(record.receivedAtMillis))return send(res,403,{error:'customer service window expired; use approved templates via a separate integration'});
     if(!active((await tenants.doc(tenantId).get()).data()))return send(res,403,{error:'subscription inactive'});
     if(!process.env.WA_ACCESS_TOKEN||!process.env.WA_GRAPH_VERSION)return send(res,503,{error:'WhatsApp outbound not configured'});

@@ -28,6 +28,12 @@ test('deployed server contract: real Auth tokens, tenant lifecycle, orders and d
  assert.equal((await api('/api/company/orders',ownerToken,{tenantId,customerName:'عميل الاختبار',contact:'emulator-only',details:'طلب عبر خادم Node وFirestore'})).status,201);
  assert.equal((await api('/api/company/orders?tenantId='+tenantId,ownerToken)).data.orders.length,1);
  assert.equal((await api('/api/public/message',null,{widgetId:created.data.widgetId,text:'not sent'})).status,503);
+ const localSession={tenantId,account:'201000000000@s.whatsapp.net',sessionId:'a'.repeat(32)};
+ assert.equal((await api('/api/company/local-whatsapp/bind',ownerToken,localSession)).status,200);
+ const incoming={...localSession,messageId:'TEST_LOCAL_001',from:'201111111111@s.whatsapp.net',text:'مواعيد العمل',timestamp:Date.now()};
+ const synced=await api('/api/company/local-whatsapp/inbox',ownerToken,incoming);assert.equal(synced.status,200);assert.equal(synced.data.sent,false);
+ assert.equal((await api('/api/company/local-whatsapp/inbox',ownerToken,incoming)).data.duplicate,true);
+ assert.equal((await api('/api/company/whatsapp/drafts?tenantId='+tenantId,ownerToken)).data.drafts[0].source,'local_qr');
  await auth.updateUser('company-owner',{disabled:true});
  assert.equal((await api('/api/company?tenantId='+tenantId,ownerToken)).status,401);
 });

@@ -1,6 +1,6 @@
 {
   "name": "bright-ai-desktop",
-  "version": "26.0.0",
+  "version": "26.1.0",
   "private": true,
   "main": "main.js",
   "scripts": {
@@ -24,7 +24,8 @@
       "config.js",
       "setup.html",
       "setup.js",
-      "whatsapp-window.js"
+      "whatsapp-window.js",
+      "local-whatsapp.js"
     ],
     "win": {
       "target": [
@@ -42,6 +43,15 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false
-    }
+    },
+    "asarUnpack": [
+      "node_modules/whatsapp-rust-bridge/**",
+      "node_modules/@whiskeysockets/**/prebuilds/**"
+    ]
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "pino": "9.14.0",
+    "qrcode": "1.5.4"
   }
 }
