@@ -3,6 +3,7 @@ const {app,BrowserWindow,dialog,session,ipcMain}=require('electron');
 const fs=require('node:fs');
 const path=require('node:path');
 const {cloudTarget}=require('./config');
+const {createWhatsAppWindow}=require('./whatsapp-window');
 const {allowedNavigation}=require('./url-policy');
 let win,target,configPath;
 function settings(){
@@ -30,8 +31,9 @@ app.whenReady().then(()=>{
   const url=cloudTarget(value);await openConsole(url);
   fs.writeFileSync(configPath,JSON.stringify({url}));return {ok:true};
  });
+ const openWhatsApp=createWhatsAppWindow({BrowserWindow,session,dialog});
  const {Menu}=require('electron');
- Menu.setApplicationMenu(Menu.buildFromTemplate([{label:'Bright Ai',submenu:[{label:'إعداد عنوان الخادم',click:settings},{label:'إعادة التحميل',role:'reload'},{type:'separator'},{role:'quit',label:'خروج'}]}]));
+ Menu.setApplicationMenu(Menu.buildFromTemplate([{label:'Bright Ai',submenu:[{label:'واتساب — ربط QR وفتح المحادثات',click:()=>openWhatsApp()},{type:'separator'},{label:'إعداد عنوان الخادم',click:settings},{label:'إعادة التحميل',role:'reload'},{type:'separator'},{role:'quit',label:'خروج'}]}]));
  let saved;try{saved=JSON.parse(fs.readFileSync(configPath,'utf8')).url;}catch{}
  if(saved)openConsole(saved).catch(()=>{});else settings();
 });

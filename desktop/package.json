@@ -6,7 +6,7 @@
   "scripts": {
     "start": "electron .",
     "dist:win": "electron-builder --win nsis",
-    "test": "node url-policy.test.js && node config.test.js"
+    "test": "node url-policy.test.js && node config.test.js && node whatsapp-window.test.js"
   },
   "devDependencies": {
     "electron": "45.2.1",
@@ -23,7 +23,8 @@
       "url-policy.js",
       "config.js",
       "setup.html",
-      "setup.js"
+      "setup.js",
+      "whatsapp-window.js"
     ],
     "win": {
       "target": [
