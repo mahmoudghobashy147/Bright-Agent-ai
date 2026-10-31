@@ -10,7 +10,7 @@ async function localWhatsApp({action,body,user,tenant,db,admin,plans}){
  if(!subscriptionActive(tenant))fail('subscription inactive',403);
  const {account,sessionId}=body;
  if(typeof account!=='string'||!/^\d{5,20}@s\.whatsapp\.net$/.test(account)||typeof sessionId!=='string'||!/^[a-f0-9]{32}$/.test(sessionId))fail('invalid local session');
- const accountHash=hash(account),channel=db.collection('brightAiLocalChannels').doc(accountHash),binding=root.collection('channels').doc('local_qr');
+ const accountHash=hash(account),channel=db.collection('brightAiLocalChannels').doc(hash(user.uid+'|'+account)),binding=root.collection('channels').doc('local_qr');
  if(action==='bind'){
   await db.runTransaction(async tx=>{
    const existing=await tx.get(channel);

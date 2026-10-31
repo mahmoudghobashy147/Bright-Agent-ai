@@ -24,4 +24,5 @@ test('tenant binding, fenced sessions, duplicate inbound events, shared quota an
  await call('inbox',{...message,messageId:'NEW',sessionId:'b'.repeat(32)});await assert.rejects(call('inbox',{...message,messageId:'THIRD',sessionId:'b'.repeat(32)}),e=>e.status===429);
  await assert.rejects(call('inbox',{...message,from:'123456@g.us'}),e=>e.status===400);
  const second=db.collection('brightAiTenants').doc('company002');await second.set(tenant);await second.collection('members').doc('owner001').set({role:'owner',active:true});await assert.rejects(call('bind',{tenantId:'company002'}),e=>e.status===409);
+ await second.collection('members').doc('owner002').set({role:'owner',active:true});assert.equal((await call('bind',{tenantId:'company002'},'owner002')).bound,true);
 });
