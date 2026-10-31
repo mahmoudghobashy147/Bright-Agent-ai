@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Bright Ai: all client access goes through the authenticated server API.
+    // Server Admin SDK access is controlled separately by Google Cloud IAM.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
