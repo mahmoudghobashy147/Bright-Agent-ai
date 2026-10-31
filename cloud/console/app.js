@@ -189,7 +189,7 @@ el('addSavedReply').addEventListener('click',()=>addReplyRow());
 document.querySelectorAll('[data-inbox-go]').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('[data-inbox]').forEach(p=>p.classList.toggle('inbox-active',p.dataset.inbox===btn.dataset.inboxGo));document.querySelectorAll('[data-inbox-go]').forEach(b=>b.setAttribute('aria-selected',String(b===btn)));}));
 
 function localStatus(text,qr=null){el('localWaState').textContent=text;el('localWaQr').classList.toggle('hidden',!qr);if(qr&&/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(qr))el('localWaQr').src=qr;else el('localWaQr').removeAttribute('src');}
-function stopLocalSync(){localSyncGeneration++;localBinding=Promise.resolve();el('localWaLog').textContent='';localStatus('غير متصل');if(window.brightWhatsApp)window.brightWhatsApp.stop().catch(()=>{});}
+function stopLocalSync(){localSyncGeneration++;localBinding=Promise.resolve();localIncoming=Promise.resolve();el('localWaLog').textContent='';localStatus('غير متصل');if(window.brightWhatsApp)window.brightWhatsApp.stop().catch(()=>{});}
 el('stopLocalWa').addEventListener('click',()=>stopLocalSync());
 el('startLocalWa').addEventListener('click',async()=>{
  if(!window.brightWhatsApp){localStatus('المزامنة تحتاج نسخة Windows المحدثة؛ فتح واتساب في المتصفح وحده لا يزامن الرسائل.');return;}

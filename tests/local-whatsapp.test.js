@@ -26,3 +26,10 @@ test('tenant binding, fenced sessions, duplicate inbound events, shared quota an
  const second=db.collection('brightAiTenants').doc('company002');await second.set(tenant);await second.collection('members').doc('owner001').set({role:'owner',active:true});await assert.rejects(call('bind',{tenantId:'company002'}),e=>e.status===409);
  await second.collection('members').doc('owner002').set({role:'owner',active:true});assert.equal((await call('bind',{tenantId:'company002'},'owner002')).bound,true);
 });
+
+test('native socket cannot deliver a prior company event after stopping or switching tenants',async()=>{
+ const {createLocalWhatsApp}=require('../desktop/local-whatsapp'),{EventEmitter}=require('node:events');const folder=fs.mkdtempSync(path.join(os.tmpdir(),'bright-session-')),sockets=[],events=[];
+ const lib={initAuthCreds:()=>({}),BufferJSON:{},proto:{},DisconnectReason:{restartRequired:515,loggedOut:401},default:()=>{const sock={ev:new EventEmitter(),user:{id:'201000000000:1@s.whatsapp.net'},end(){}};sockets.push(sock);return sock;}};
+ const bridge=createLocalWhatsApp({userData:folder,safeStorage:{isEncryptionAvailable:()=>true,encryptString:s=>Buffer.from(s),decryptString:b=>b.toString()},emit:(type,event)=>events.push({type,...event}),runtimeLoader:async()=>({lib,QR:{toDataURL:async()=>''},logger:{}})});
+ try{await bridge.start({tenantId:'company001',uid:'owner001',origin:'https://console.test'});const first=sockets[0];await bridge.start({tenantId:'company002',uid:'owner001',origin:'https://console.test'});const count=events.length;first.ev.emit('messages.upsert',{type:'notify',messages:[{key:{id:'STALE',remoteJid:'201111111111@s.whatsapp.net'},messageTimestamp:Math.floor(Date.now()/1000),message:{conversation:'old company'}}]});assert.equal(events.length,count);bridge.stop();sockets[1].ev.emit('connection.update',{connection:'open'});assert.equal(events.length,count);}finally{bridge.stop();fs.rmSync(folder,{recursive:true,force:true});}
+});
