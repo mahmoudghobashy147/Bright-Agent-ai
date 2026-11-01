@@ -7,6 +7,7 @@ const {createWhatsAppLauncher}=require('./whatsapp-window');
 const {createLocalWhatsApp}=require('./local-whatsapp');
 const {allowedNavigation}=require('./url-policy');
 let win,target,configPath;
+if(!app.requestSingleInstanceLock())app.exit(0);
 function settings(){
  target=null;
  win.loadFile(path.join(__dirname,'setup.html')).catch(()=>dialog.showErrorBox('Bright Ai','تعذر عرض الإعدادات'));
@@ -35,7 +36,8 @@ app.whenReady().then(()=>{
  const openWhatsApp=createWhatsAppLauncher({shell,dialog});
  const localWhatsApp=createLocalWhatsApp({safeStorage,userData:app.getPath('userData'),emit:(kind,data)=>{if(!win.isDestroyed())win.webContents.send('bright:wa:'+kind,data);}});
  const trustedConsole=event=>{try{return event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame&&target&&new URL(event.senderFrame.url).origin===target.origin&&new URL(event.senderFrame.url).pathname.startsWith('/console/');}catch{return false;}};
- ipcMain.handle('bright:wa:start',async(event,input)=>{if(!trustedConsole(event))throw Error('Access denied');return localWhatsApp.start({tenantId:String(input?.tenantId||''),uid:String(input?.uid||''),origin:target.origin});});
+ ipcMain.handle('bright:wa:start',async(event,input)=>{if(!trustedConsole(event))throw Error('Access denied');return localWhatsApp.start({tenantId:String(input?.tenantId||''),uid:String(input?.uid||''),autoReplyEnabled:input?.autoReplyEnabled===true,origin:target.origin});});
+ ipcMain.handle('bright:wa:reply',async(event,input)=>{if(!trustedConsole(event))throw Error('Access denied');return localWhatsApp.reply(input);});
  ipcMain.handle('bright:wa:ack',(event,input)=>{if(!trustedConsole(event))throw Error('Access denied');return localWhatsApp.ack(input);});
  ipcMain.handle('bright:wa:stop',event=>{if(!trustedConsole(event))throw Error('Access denied');return localWhatsApp.stop();});
  win.webContents.on('will-navigate',()=>localWhatsApp.stop());win.on('closed',()=>localWhatsApp.stop());

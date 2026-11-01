@@ -1,7 +1,7 @@
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
 import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut,sendPasswordResetEmail} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
 import {firebaseConfig} from './firebase-config.js';
-let localSyncGeneration=0,localBinding=Promise.resolve(),localIncoming=Promise.resolve();
+let localSyncGeneration=0,localBinding=Promise.resolve(),localIncoming=Promise.resolve(),localAutoReply=false;
 const app=initializeApp(firebaseConfig),auth=getAuth(app);
 const el=id=>document.getElementById(id),status=(s,error=false)=>{el('status').textContent=s;el('status').className=error?'error':''};
 const show=(id,on)=>{el(id).classList.toggle('hidden',!on);if(id==='adminPanel')el('adminNav').classList.toggle('hidden',!on);};
@@ -70,7 +70,7 @@ el('loadWhatsapp').addEventListener('click',async()=>{
         try{const result=await api('/api/company/whatsapp/draft',{tenantId,messageId:m.id});status('تم إنشاء مسودة. راجعها قبل الإرسال.');item.append(replyButton(tenantId,m.id,result.reply))}
         catch(e){status('تعذر إنشاء المسودة: '+e.message,true)}finally{draft.disabled=false}
       });
-      if(m.source==='local_qr'){const note=document.createElement('p');note.textContent='مزامنة QR — الرد محفوظ في تبويب المسودات للمراجعة. الإرسال مغلق.';item.append(label,note);}else item.append(label,input,manual,draft);host.append(item);
+      if(m.source==='local_qr'){const note=document.createElement('p');note.textContent=m.status==='replied'?'تم إرسال الرد التلقائي عبر جلسة واتساب المحلية.':m.status==='reply_unknown'?'نتيجة الإرسال غير مؤكدة؛ لن يُعاد تلقائيًا لتجنب التكرار.':'مزامنة QR — تابع حالة الرد في المسودات.';item.append(label,note);}else item.append(label,input,manual,draft);host.append(item);
     }
     if(!r.messages.length)host.textContent='لا توجد رسائل واردة';
   }catch(e){status('تعذر عرض رسائل واتساب: '+e.message,true)}
@@ -84,7 +84,7 @@ el('loadDrafts').addEventListener('click',async()=>{
       const card=document.createElement('div');card.className='conversation';
       const body=document.createElement('p');body.textContent=d.reply;
       const state=document.createElement('small');state.textContent='حالة المسودة: '+d.status;
-      card.append(body,state);if(d.source==='local_qr'){const note=document.createElement('p');note.textContent='مسودة ناتجة من المزامنة المحلية — الإرسال مغلق أثناء الاختبار.';card.append(note);}else card.append(replyButton(tenantId,d.sourceMessageId,d.reply));host.append(card);
+      card.append(body,state);if(d.source==='local_qr'){const note=document.createElement('p');note.textContent=d.status==='sent'?'تم إرسال الرد عبر واتساب.':d.status==='reply_unknown'?'نتيجة الإرسال غير مؤكدة؛ راجع واتساب قبل أي محاولة أخرى.':'رد محفوظ من المزامنة المحلية.';card.append(note);}else card.append(replyButton(tenantId,d.sourceMessageId,d.reply));host.append(card);
     }
     if(!result.drafts.length)host.textContent='لا توجد مسودات محفوظة';
   }catch(e){status('تعذر تحميل المسودات: '+e.message,true)}
@@ -189,13 +189,14 @@ el('addSavedReply').addEventListener('click',()=>addReplyRow());
 document.querySelectorAll('[data-inbox-go]').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('[data-inbox]').forEach(p=>p.classList.toggle('inbox-active',p.dataset.inbox===btn.dataset.inboxGo));document.querySelectorAll('[data-inbox-go]').forEach(b=>b.setAttribute('aria-selected',String(b===btn)));}));
 
 function localStatus(text,qr=null){el('localWaState').textContent=text;el('localWaQr').classList.toggle('hidden',!qr);if(qr&&/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(qr))el('localWaQr').src=qr;else el('localWaQr').removeAttribute('src');}
-function stopLocalSync(){localSyncGeneration++;localBinding=Promise.resolve();localIncoming=Promise.resolve();el('localWaLog').textContent='';localStatus('غير متصل');if(window.brightWhatsApp)window.brightWhatsApp.stop().catch(()=>{});}
+function stopLocalSync(){localAutoReply=false;localSyncGeneration++;localBinding=Promise.resolve();localIncoming=Promise.resolve();el('localWaLog').textContent='';localStatus('غير متصل');if(window.brightWhatsApp)window.brightWhatsApp.stop().catch(()=>{});}
 el('stopLocalWa').addEventListener('click',()=>stopLocalSync());
 el('startLocalWa').addEventListener('click',async()=>{
  if(!window.brightWhatsApp){localStatus('المزامنة تحتاج نسخة Windows المحدثة؛ فتح واتساب في المتصفح وحده لا يزامن الرسائل.');return;}
+ if(el('localWaAutoReply').checked&&typeof window.brightWhatsApp.reply!=='function'){localStatus('الرد التلقائي يحتاج نسخة Windows 26.2.0 أو أحدث. ثبّت التحديث أولًا.');return;}
  const tenantId=el('tenantId').value,uid=auth.currentUser?.uid;if(!tenantId||!uid){localStatus('اختر شركتك وسجل الدخول أولًا');return;}
  const btn=el('startLocalWa');btn.disabled=true;
- try{await api('/api/company/members?tenantId='+encodeURIComponent(tenantId));stopLocalSync();localStatus('جاري تجهيز اتصال واتساب…');await window.brightWhatsApp.start({tenantId,uid});}
+ try{await api('/api/company/members?tenantId='+encodeURIComponent(tenantId));stopLocalSync();localAutoReply=el('localWaAutoReply').checked;localStatus('جاري تجهيز اتصال واتساب…');await window.brightWhatsApp.start({tenantId,uid,autoReplyEnabled:localAutoReply});}
  catch(e){localStatus('تعذر بدء المزامنة: '+e.message);}finally{btn.disabled=false;}
 });
 if(window.brightWhatsApp){
@@ -205,7 +206,7 @@ if(window.brightWhatsApp){
   if(data.state==='qr')localStatus('امسح الكود من موبايلك: الأجهزة المرتبطة ← ربط جهاز',data.qr);
   else if(data.state==='connected'){
    const generation=localSyncGeneration;localStatus('تم اتصال واتساب. جاري ربطه بالشركة…');
-   localBinding=api('/api/company/local-whatsapp/bind',{tenantId:data.tenantId,account:data.account,sessionId:data.sessionId}).then(()=>{if(generation===localSyncGeneration)localStatus('متصل بالشركة — مزامنة الرسائل الجديدة وتجهيز الردود للمراجعة. الإرسال مغلق.');}).catch(e=>{if(generation===localSyncGeneration){localStatus('تعذر ربط الشركة: '+e.message);window.brightWhatsApp.stop().catch(()=>{});}throw e;});localBinding.catch(()=>{});
+   localBinding=api('/api/company/local-whatsapp/bind',{tenantId:data.tenantId,account:data.account,sessionId:data.sessionId,autoReplyEnabled:localAutoReply}).then(result=>{if(generation===localSyncGeneration)localStatus(result.autoReplyEnabled?'متصل — الرد التلقائي مفعل لأي رقم يرسل رسالة نصية خاصة جديدة.':'متصل — مزامنة ومسودات فقط. الرد التلقائي متوقف.');}).catch(e=>{if(generation===localSyncGeneration){localStatus('تعذر ربط الشركة: '+e.message);window.brightWhatsApp.stop().catch(()=>{});}throw e;});localBinding.catch(()=>{});
   }else if(data.state==='connecting')localStatus('جاري الاتصال بواتساب…');
   else localStatus(data.error||'انقطع الاتصال. اضغط بدء المزامنة لإعادة الاتصال.');
  });
@@ -214,8 +215,21 @@ if(window.brightWhatsApp){
   localIncoming=localIncoming.catch(()=>{}).then(async()=>{
    await localBinding;if(generation!==localSyncGeneration||!matches(data))return;
    await api('/api/company/local-whatsapp/inbox',{tenantId:data.tenantId,account:data.account,sessionId:data.sessionId,messageId:data.messageId,from:data.from,text:data.text,timestamp:data.timestamp});
+   let messageStatus='تمت مزامنة رسالة وتجهيز مسودة.';
+   if(localAutoReply){
+    const request={tenantId:data.tenantId,account:data.account,sessionId:data.sessionId,sourceMessageId:data.messageId,from:data.from};
+    const claim=await api('/api/company/local-whatsapp/reply-claim',request);
+    if(generation!==localSyncGeneration||!matches(data))return;
+    if(claim.allowed){
+     const result=await window.brightWhatsApp.reply({...data,reply:claim.reply,claimId:claim.claimId});
+     if(generation!==localSyncGeneration||!matches(data))return;
+     await api('/api/company/local-whatsapp/reply-result',{...request,claimId:claim.claimId,status:result.status,whatsappMessageId:result.whatsappMessageId});
+     messageStatus=result.status==='sent'?'تم إرسال الرد التلقائي عبر واتساب.':'نتيجة الإرسال غير مؤكدة؛ لن نكرر المحاولة تلقائيًا.';
+    }else messageStatus=claim.status==='sent'?'هذه الرسالة تم الرد عليها سابقًا.':claim.status==='unknown'?'نتيجة محاولة سابقة غير مؤكدة؛ لم نكرر الإرسال.':claim.status==='opted_out'?'العميل أوقف الرسائل؛ لم نرسل ردًا.':'تمت المزامنة بدون إرسال: '+claim.status;
+   }
+   if(generation!==localSyncGeneration||!matches(data))return;
    await window.brightWhatsApp.ack(data);
-   el('localWaLog').textContent='تمت مزامنة رسالة وتجهيز رد للمراجعة. لم يتم إرسال رسالة للعميل.';el('loadWhatsapp').click();
+   el('localWaLog').textContent=messageStatus;el('loadWhatsapp').click();
   }).catch(e=>{if(generation===localSyncGeneration)el('localWaLog').textContent='رسالة معلّقة محليًا؛ ستتم إعادة المحاولة: '+e.message;});
  });
 }

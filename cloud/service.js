@@ -54,9 +54,9 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
   if(!allowedOrigin(req.headers.origin,allowedOrigins))return send(res,403,{error:'origin not permitted'});
   if(req.headers.origin){res.setHeader('Access-Control-Allow-Origin',req.headers.origin);res.setHeader('Vary','Origin');}
   if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':req.headers.origin||'','Access-Control-Allow-Headers':'Authorization, Content-Type','Access-Control-Allow-Methods':'GET, POST, OPTIONS'});return res.end();}
-  if(req.method==='POST'&&['/api/company/local-whatsapp/bind','/api/company/local-whatsapp/inbox'].includes(p)){
+  if(req.method==='POST'&&['/api/company/local-whatsapp/bind','/api/company/local-whatsapp/inbox','/api/company/local-whatsapp/reply-claim','/api/company/local-whatsapp/reply-result'].includes(p)){
     const user=await userFromBearer(req),body=await parseBody(req),tenant=await companyForUser(user.uid,body.tenantId);
-    return send(res,200,await localWhatsApp({action:p.endsWith('/bind')?'bind':'inbox',body,user,tenant,db,admin,plans:PLANS}));
+    return send(res,200,await localWhatsApp({action:p.split('/').at(-1),body,user,tenant,db,admin,plans:PLANS}));
   }
   if(req.method==='GET'&&p==='/api/me/companies'){
     const user=await userFromBearer(req);
@@ -344,7 +344,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     const user=await userFromBearer(req),tenantId=url.searchParams.get('tenantId');
     await companyForUser(user.uid,tenantId);
     const snap=await tenants.doc(tenantId).collection('whatsappDrafts').orderBy('createdAt','desc').limit(50).get();
-    return send(res,200,{drafts:snap.docs.map(d=>({id:d.id,sourceMessageId:d.data().sourceMessageId,reply:txt(d.data().reply,2000),source:d.data().source||'meta',status:d.data().status,createdAt:d.data().createdAt?.toDate?.()?.toISOString()||null}))});
+    return send(res,200,{drafts:snap.docs.map(d=>({id:d.id,sourceMessageId:d.data().sourceMessageId,reply:txt(d.data().outboundReply||d.data().reply,2000),source:d.data().source||'meta',status:d.data().status,createdAt:d.data().createdAt?.toDate?.()?.toISOString()||null}))});
   }
   if(req.method==='GET'&&p==='/api/company/whatsapp-inbox'){
     const user=await userFromBearer(req),tenantId=url.searchParams.get('tenantId');

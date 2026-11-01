@@ -34,6 +34,13 @@ test('deployed server contract: real Auth tokens, tenant lifecycle, orders and d
  const synced=await api('/api/company/local-whatsapp/inbox',ownerToken,incoming);assert.equal(synced.status,200);assert.equal(synced.data.sent,false);
  assert.equal((await api('/api/company/local-whatsapp/inbox',ownerToken,incoming)).data.duplicate,true);
  assert.equal((await api('/api/company/whatsapp/drafts?tenantId='+tenantId,ownerToken)).data.drafts[0].source,'local_qr');
+ const request={...localSession,sourceMessageId:incoming.messageId,from:incoming.from};
+ assert.equal((await api('/api/company/local-whatsapp/reply-claim',ownerToken,request)).data.status,'disabled');
+ assert.equal((await api('/api/company/local-whatsapp/bind',ownerToken,{...localSession,autoReplyEnabled:true})).data.autoReplyEnabled,true);
+ const replyClaim=await api('/api/company/local-whatsapp/reply-claim',ownerToken,request);assert.equal(replyClaim.status,200);assert.equal(replyClaim.data.reply,'من 9 إلى 5');
+ assert.equal((await api('/api/company/local-whatsapp/reply-claim',ownerToken,request)).data.allowed,false);
+ assert.equal((await api('/api/company/local-whatsapp/reply-result',ownerToken,{...request,claimId:replyClaim.data.claimId,status:'sent',whatsappMessageId:'EMULATOR_ONLY'})).data.status,'sent');
+ assert.equal((await api('/api/company/whatsapp-inbox?tenantId='+tenantId,ownerToken)).data.messages[0].status,'replied');
  await auth.updateUser('company-owner',{disabled:true});
  assert.equal((await api('/api/company?tenantId='+tenantId,ownerToken)).status,401);
 });
