@@ -21,7 +21,7 @@ const isId=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{6,100}$/.test(x);
 const txt=(x,n)=>String(x??'').trim().slice(0,n);
 const monthlyKey=()=>new Date().toISOString().slice(0,7);
 const today=()=>new Date().toISOString().slice(0,10);
-const agentSettings=b=>({savedReplies:(parseRules(b.savedReplies||''),b.savedReplies||''),businessDescription:txt(b.businessDescription,1500),services:txt(b.services,2500),guidelines:txt(b.guidelines,2000),greeting:txt(b.greeting,500)});
+const agentSettings=b=>({assistantProfile:b.assistantProfile==='eldalel'?'eldalel':'generic',savedReplies:(parseRules(b.savedReplies||''),b.savedReplies||''),businessDescription:txt(b.businessDescription,1500),services:txt(b.services,2500),guidelines:txt(b.guidelines,2000),greeting:txt(b.greeting,500)});
 const superAdmin=(u,allowedUids=new Set())=>u?.brightSuperAdmin===true||(typeof u?.uid==='string'&&allowedUids.has(u.uid));
 
 const active=subscriptionActive;
@@ -45,7 +45,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
   const url=new URL(req.url,'http://localhost'),p=url.pathname;
   if(req.method==='GET'&&p==='/'){res.writeHead(302,{location:'/console/','cache-control':'no-store'});return res.end();}
   if(req.method==='GET'&&p==='/health')return send(res,200,{ok:true,version:26,storage:'firestore',mode:'cloud'});
-  if(req.method==='GET'&&['/console/','/console/index.html','/console/app.js','/console/firebase-config.js'].includes(p)){
+  if(req.method==='GET'&&['/console/','/console/index.html','/console/app.js','/console/firebase-config.js','/console/eldalel-preset.js'].includes(p)){
     const name=p==='/console/'?'index.html':path.basename(p);
     const file=path.join(__dirname,'console',name);
     if(!fs.existsSync(file))return send(res,404,{error:'console config missing'});
@@ -128,7 +128,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     return send(res,200,{settings:agentSettings(tenant.agentSettings||{})});
   }
   if(req.method==='POST'&&p==='/api/company/agent'){
-    const user=await userFromBearer(req),b=await parseBody(req),tenantId=txt(b.tenantId,100);
+    const user=await userFromBearer(req),b=await parseBody(req,800000),tenantId=txt(b.tenantId,100);
     await companyForUser(user.uid,tenantId);
     const member=await tenants.doc(tenantId).collection('members').doc(user.uid).get();
     if(!['owner','admin'].includes(member.data()?.role))return send(res,403,{error:'owner or admin required'});
@@ -141,7 +141,8 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     const tenant=await companyForUser(user.uid,txt(b.tenantId,100));
     const message=txt(b.text,1500);if(!message)return send(res,400,{error:'نص الاختبار مطلوب'});
     const result=await createSavedReplyAgent()({message,tenant});
-    return send(res,200,{...result,sent:false,preview:true});
+    const media=result.mediaId?require('./eldalel-media')[result.mediaId]:null;
+    return send(res,200,{...result,...(media?{media:{mimeType:media.mimeType,data:media.data,sourceUrl:media.sourceUrl}}:{}),sent:false,preview:true});
   }
   if(req.method==='GET'&&p==='/api/company'){
     const user=await userFromBearer(req),tenantId=url.searchParams.get('tenantId');

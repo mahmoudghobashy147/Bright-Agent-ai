@@ -1,6 +1,6 @@
 {
   "name": "bright-ai-desktop",
-  "version": "26.2.0",
+  "version": "26.3.0",
   "private": true,
   "main": "main.js",
   "scripts": {

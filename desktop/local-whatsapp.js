@@ -63,10 +63,18 @@ function createLocalWhatsApp({safeStorage,userData,emit,runtimeLoader=loadRuntim
   if(typeof input.reply!=='string'||!input.reply.trim()||input.reply.length>2000||!/^\d{5,30}@(s\.whatsapp\.net|lid)$/.test(input.from)||!/^[a-f0-9]{32}$/.test(input.claimId))throw Error('invalid reply');
   const active=socket,auth=authState;
   if(!active?.user?.id||String(active.user.id).replace(/:\d+@/,'@')!==input.account)throw Error('حساب واتساب غير متصل');
+  let content={text:input.reply};
+  if(input.media){
+   const m=input.media;if(m.mimeType!=='image/jpeg'||typeof m.data!=='string'||m.data.length>1500000||!/^[A-Za-z0-9+/]+={0,2}$/.test(m.data))throw Error('invalid image');
+   const bytes=Buffer.from(m.data,'base64');if(bytes.length<4||bytes[0]!==255||bytes[1]!==216||bytes[2]!==255||input.reply.length>1000)throw Error('invalid image payload');
+   content={image:bytes,caption:input.reply};
+   if(m.jpegThumbnail){if(typeof m.jpegThumbnail!=='string'||m.jpegThumbnail.length>30000||!/^[A-Za-z0-9+/]+={0,2}$/.test(m.jpegThumbnail))throw Error('invalid thumbnail');content.jpegThumbnail=Buffer.from(m.jpegThumbnail,'base64');}
+   if(Number.isInteger(m.width)&&m.width>0&&m.width<=2000&&Number.isInteger(m.height)&&m.height>0&&m.height<=2000){content.width=m.width;content.height=m.height;}
+  }
   const began=auth.deliveries.begin(input);if(began.previous)return began.previous;
   let timeout,result;
   try{
-   const sent=await Promise.race([active.sendMessage(input.from,{text:input.reply}),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error('delivery timeout')),15000);})]);
+   const sent=await Promise.race([active.sendMessage(input.from,content),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error('delivery timeout')),15000);})]);
    result=sent?.key?.id?{status:'sent',whatsappMessageId:String(sent.key.id)}:{status:'unknown'};
   }catch{result={status:'unknown'};}finally{clearTimeout(timeout);}
   auth.deliveries.complete(input,result);return result;

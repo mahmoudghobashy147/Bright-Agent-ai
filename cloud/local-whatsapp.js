@@ -42,20 +42,22 @@ async function localWhatsApp({action,body,user,tenant,db,admin,plans}){
    if(delivery.exists)return {allowed:false,status:delivery.data().status};
    if(person.data()?.optedOut||isOptOut(message.data().text))return {allowed:false,status:'opted_out'};
    if(message.data().receivedAtMillis<Date.now()-5*60000)return {allowed:false,status:'expired'};
-   const reply=proposal.data().requiresReview?FALLBACK:proposal.data().reply;
+   const reply=proposal.data().requiresReview?FALLBACK:proposal.data().reply,mediaId=proposal.data().mediaId;
+   const media=mediaId&&current.data()?.agentSettings?.assistantProfile==='eldalel'?require('./eldalel-media')[mediaId]:null;
    if(typeof reply!=='string'||!reply.trim()||reply.length>2000)fail('invalid reply');
    const claimId=crypto.randomBytes(16).toString('hex');
    // Claim before dispatch, with no automatic reclaim: timeouts may have delivered.
-   tx.create(outbox,{source:'local_qr',fromMessageId:id,to:body.from,reply,status:'unknown',claimId,sessionId,createdBy:user.uid,createdAt:admin.firestore.FieldValue.serverTimestamp()});
+   tx.create(outbox,{source:'local_qr',fromMessageId:id,to:body.from,reply,mediaId:media?mediaId:null,status:'unknown',claimId,sessionId,createdBy:user.uid,createdAt:admin.firestore.FieldValue.serverTimestamp()});
    tx.update(draft,{status:'reply_unknown',outboundReply:reply});tx.update(inbox,{status:'reply_unknown'});
-   return {allowed:true,claimId,reply,to:body.from};
+   return {allowed:true,claimId,reply,to:body.from,...(media?{media:{mimeType:media.mimeType,data:media.data,jpegThumbnail:media.jpegThumbnail,width:media.width,height:media.height}}:{})};
   });
  }
  if(action!=='inbox')fail('not found',404);
  const {messageId,from,text,timestamp}=body;
  if(typeof messageId!=='string'||!/^[-_a-zA-Z0-9:.]{1,120}$/.test(messageId)||typeof from!=='string'||!/^\d{5,30}@(s\.whatsapp\.net|lid)$/.test(from)||typeof text!=='string'||!text.trim()||text.length>1500||!Number.isSafeInteger(timestamp)||timestamp>Date.now()+30000||timestamp<Date.now()-24*3600000)fail('invalid local text message');
  const id=hash(account+'|'+from+'|'+messageId),inbox=root.collection('whatsappInbox').doc(id),draft=root.collection('whatsappDrafts').doc('local_'+id),usage=root.collection('usage').doc(new Date().toISOString().slice(0,7)),contact=root.collection('localWhatsAppContacts').doc(hash(account+'|'+from));
- const answer=await createSavedReplyAgent()({message:text,tenant});
+ const previous=await contact.get();
+ const answer=await createSavedReplyAgent()({message:text,tenant,context:previous.data()?.conversation});
  const duplicate=await db.runTransaction(async tx=>{
   const [bound,existing,month,current]=await Promise.all([tx.get(binding),tx.get(inbox),tx.get(usage),tx.get(root)]);
   if(bound.data()?.accountHash!==accountHash||bound.data()?.sessionId!==sessionId)fail('local session changed; reconnect',409);
@@ -65,8 +67,8 @@ async function localWhatsApp({action,body,user,tenant,db,admin,plans}){
   if(!limit||count>=limit)fail('monthly quota exceeded',429);
   tx.set(usage,{reserved:count+1},{merge:true});
   tx.create(inbox,{from,text,source:'local_qr',receivedAtMillis:timestamp,createdAt:admin.firestore.FieldValue.serverTimestamp(),status:'awaiting_review',sent:false});
-  tx.create(draft,{sourceMessageId:id,reply:answer.reply,mode:answer.mode,requiresReview:answer.requiresReview===true,source:'local_qr',status:'awaiting_review',createdBy:user.uid,createdAt:admin.firestore.FieldValue.serverTimestamp()});
-  if(isOptOut(text))tx.set(contact,{optedOut:true,updatedAt:admin.firestore.FieldValue.serverTimestamp()},{merge:true});
+  tx.create(draft,{sourceMessageId:id,reply:answer.reply,mode:answer.mode,requiresReview:answer.requiresReview===true,mediaId:answer.mediaId||null,source:'local_qr',status:'awaiting_review',createdBy:user.uid,createdAt:admin.firestore.FieldValue.serverTimestamp()});
+  if(isOptOut(text)||answer.conversation)tx.set(contact,{...(isOptOut(text)?{optedOut:true}:{}),...(answer.conversation?{conversation:answer.conversation}:{}),updatedAt:admin.firestore.FieldValue.serverTimestamp()},{merge:true});
   return false;
  });
  return {synced:true,duplicate,messageId:id,draftId:draft.id,sent:false};

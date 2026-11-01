@@ -40,6 +40,7 @@ test('native sender fences recipients and sessions, persists attempted dispatch 
  try{
   await start();const input=receive('N1');await assert.rejects(bridge.reply({...input,from:'201999999999@s.whatsapp.net'}));assert.equal(sent.length,0);assert.equal((await bridge.reply(input)).status,'sent');await bridge.reply(input);assert.equal(sent.length,1);assert.equal(sent[0].to,input.from);
   fail=true;const ambiguous=receive('N2');assert.equal((await bridge.reply(ambiguous)).status,'unknown');await bridge.reply(ambiguous);assert.equal(sent.length,2);
-  bridge.stop();await assert.rejects(bridge.reply(input));await start();const restored=receive('N2');assert.equal((await bridge.reply(restored)).status,'unknown');assert.equal(sent.length,2);
+  fail=false;const photo=receive('IMAGE1'),media=require('../cloud/eldalel-media')['category-materials-3d'];await assert.rejects(bridge.reply({...photo,media:{mimeType:'image/jpeg',data:'aHRtbA=='}}));assert.equal(sent.length,2);await bridge.reply({...photo,media});assert.equal(sent.length,3);assert.ok(Buffer.isBuffer(sent[2].body.image));assert.equal(sent[2].body.caption,'499 جنيه');
+  bridge.stop();await assert.rejects(bridge.reply(input));await start();const restored=receive('N2');assert.equal((await bridge.reply(restored)).status,'unknown');assert.equal(sent.length,3);
  }finally{bridge.stop();fs.rmSync(folder,{recursive:true,force:true});}
 });
