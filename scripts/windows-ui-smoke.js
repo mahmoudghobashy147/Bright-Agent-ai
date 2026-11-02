@@ -38,6 +38,9 @@ const {makeService}=require('../cloud/service');const {memoryStore}=require('../
   await page.locator('#activateEldalel').click();await page.waitForFunction(()=>document.getElementById('status').textContent.includes('تم تفعيل مساعد الدليل الشامل'));assert.equal(await page.locator('#replyRows .reply-row').count(),41);
   await page.locator('#replyTestText').fill('وريني صور التشطيبات');await page.locator('#previewSavedReply').click();await page.waitForSelector('#savedReplyImage:not(.hidden)');assert.ok((await page.locator('#savedReplyImage').getAttribute('src')).startsWith('data:image/jpeg;base64,'));
   await page.screenshot({path:'artifacts/windows-eldalel-assistant.png',fullPage:true});
+  await page.locator('#activateSmartDigital').click();await page.waitForFunction(()=>document.getElementById('status').textContent.includes('مسار')&&document.getElementById('assistantProfile').value==='smart_digital');assert.equal(await page.locator('#replyRows .reply-row').count(),70);
+  await page.locator('#replyTestText').fill('عايز متجر الكتروني');await page.locator('#previewSavedReply').click();await page.waitForFunction(()=>document.getElementById('savedReplyResult').textContent.includes('المنتجات'));
+  await page.locator('#replyTestText').fill('فيدني اكتر');await page.locator('#previewSavedReply').click();await page.waitForFunction(()=>document.getElementById('savedReplyResult').textContent.includes('الأقسام والمنتجات'));
   await page.locator('.nav-item[data-go="orders"]').click();
   await page.locator('#newOrderPanel summary').click();
   await page.locator('#orderCustomer').fill('عميل اختبار');await page.locator('#orderContact').fill('test-only');await page.locator('#orderDetails').fill('طلب تجريبي من واجهة Windows');await page.locator('#createOrder').click();

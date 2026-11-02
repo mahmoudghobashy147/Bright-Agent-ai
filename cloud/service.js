@@ -21,7 +21,7 @@ const isId=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{6,100}$/.test(x);
 const txt=(x,n)=>String(x??'').trim().slice(0,n);
 const monthlyKey=()=>new Date().toISOString().slice(0,7);
 const today=()=>new Date().toISOString().slice(0,10);
-const agentSettings=b=>({assistantProfile:b.assistantProfile==='eldalel'?'eldalel':'generic',savedReplies:(parseRules(b.savedReplies||''),b.savedReplies||''),businessDescription:txt(b.businessDescription,1500),services:txt(b.services,2500),guidelines:txt(b.guidelines,2000),greeting:txt(b.greeting,500)});
+const agentSettings=b=>({assistantProfile:['eldalel','smart_digital'].includes(b.assistantProfile)?b.assistantProfile:'generic',savedReplies:(parseRules(b.savedReplies||''),b.savedReplies||''),businessDescription:txt(b.businessDescription,1500),services:txt(b.services,2500),guidelines:txt(b.guidelines,2000),greeting:txt(b.greeting,500)});
 const superAdmin=(u,allowedUids=new Set())=>u?.brightSuperAdmin===true||(typeof u?.uid==='string'&&allowedUids.has(u.uid));
 
 const active=subscriptionActive;
@@ -122,6 +122,11 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     const snap=await tenants.limit(100).get();
     return send(res,200,{companies:snap.docs.map(d=>({id:d.id,name:d.data().name,plan:d.data().plan,subscriptionStatus:d.data().subscriptionStatus}))});
   }
+  if(req.method==='GET'&&p==='/api/company/agent-presets/smart-digital'){
+    const user=await userFromBearer(req),tenantId=url.searchParams.get('tenantId');await companyForUser(user.uid,tenantId);
+    const {intents}=require('./smart-digital-library');
+    return send(res,200,{paths:intents.length,questionForms:intents.reduce((sum,i)=>sum+i.aliases.length,0),settings:{assistantProfile:'smart_digital',businessDescription:'Smart Digital — مواقع ومتاجر وتصميم ومحتوى وسوشيال وإعلانات.',services:'المواقع التعريفية والمتاجر، التصميم والهوية، المحتوى والريلز وإدارة الصفحات والإعلانات، مراجعة الدومين والاستضافة والدعم حسب الاتفاق.',greeting:'أهلًا بيك في Smart Digital 👋 نشاطك إيه ومحتاج نساعدك في إيه؟',guidelines:'لا تخترع أسعارًا أو مواعيد أو مزايا باقات أو ضمان مبيعات. اجمع المطلوب واطلب اعتماد الفريق.',savedReplies:intents.map(i=>i.aliases[0]+' | '+i.reply).join('\n')}});
+  }
   if(req.method==='GET'&&p==='/api/company/agent'){
     const user=await userFromBearer(req),tenantId=url.searchParams.get('tenantId');
     const tenant=await companyForUser(user.uid,tenantId);
@@ -140,7 +145,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     const user=await userFromBearer(req),b=await parseBody(req);
     const tenant=await companyForUser(user.uid,txt(b.tenantId,100));
     const message=txt(b.text,1500);if(!message)return send(res,400,{error:'نص الاختبار مطلوب'});
-    const result=await createSavedReplyAgent()({message,tenant});
+    const result=await createSavedReplyAgent()({message,tenant,context:b.context&&typeof b.context==='object'?b.context:undefined});
     const media=result.mediaId?require('./eldalel-media')[result.mediaId]:null;
     return send(res,200,{...result,...(media?{media:{mimeType:media.mimeType,data:media.data,sourceUrl:media.sourceUrl}}:{}),sent:false,preview:true});
   }

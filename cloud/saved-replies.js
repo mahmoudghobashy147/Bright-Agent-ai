@@ -3,6 +3,7 @@
 const HANDOFF='محتاجين مراجعة فريق الشركة لتأكيد الإجابة. لم يتم إنشاء طلب أو إرسال رسالة تلقائيًا.';
 const {normalize,has,answerEldalel}=require('./eldalel-assistant');
 const {loadDirectoryKnowledge}=require('./eldalel-knowledge');
+const {answerSmartDigital,intents:smartIntents}=require('./smart-digital-assistant');
 function parseRules(value=''){
  if(typeof value!=='string'||value.length>250000)throw Object.assign(Error('قائمة الردود تتجاوز الحد المسموح'),{status:400});
  const lines=value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
@@ -17,6 +18,11 @@ function parseRules(value=''){
 function createSavedReplyAgent({knowledgeLoader=loadDirectoryKnowledge}={}){return async({message,tenant,context})=>{
  const key=normalize(message),settings=tenant.agentSettings||{};
  let rules;try{rules=parseRules(settings.savedReplies||'');}catch{return {reply:HANDOFF,mode:'saved_review',requiresReview:true};}
+ if(settings.assistantProfile==='smart_digital'){
+  const answer=answerSmartDigital({message,context}),exact=rules.find(rule=>rule.key===key);
+  const presetDefault=exact&&smartIntents.some(i=>i.reply===exact.reply&&normalize(i.aliases[0])===exact.key);
+  return exact&&!presetDefault?{...answer,reply:exact.reply}:answer;
+ }
  let directoryAnswer;
  if(settings.assistantProfile==='eldalel'){
   const planQuestion=has(key,['باقات','باقة','اشتراك'])||context?.topic==='plans';
