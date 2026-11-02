@@ -41,6 +41,12 @@ const {makeService}=require('../cloud/service');const {memoryStore}=require('../
   await page.locator('#activateSmartDigital').click();await page.waitForFunction(()=>document.getElementById('status').textContent.includes('مسار')&&document.getElementById('assistantProfile').value==='smart_digital');assert.equal(await page.locator('#replyRows .reply-row').count(),70);
   await page.locator('#replyTestText').fill('عايز متجر الكتروني');await page.locator('#previewSavedReply').click();await page.waitForFunction(()=>document.getElementById('savedReplyResult').textContent.includes('المنتجات'));
   await page.locator('#replyTestText').fill('فيدني اكتر');await page.locator('#previewSavedReply').click();await page.waitForFunction(()=>document.getElementById('savedReplyResult').textContent.includes('الأقسام والمنتجات'));
+  await page.locator('#activateKhaledDesign').click();await page.waitForFunction(()=>document.getElementById('assistantProfile').value==='khaled_design');assert.equal(await page.locator('#replyRows .reply-row').count(),43);
+  await page.locator('#replyTestText').fill('عايز تصميم شقة 120 متر');await page.locator('#previewSavedReply').click();await page.waitForFunction(()=>document.getElementById('savedReplyResult').textContent.includes('التصميم الداخلي'));
+  await page.locator('#replyTestText').fill('في القاهرة على الطوب');await page.locator('#previewSavedReply').click();await page.waitForFunction(()=>document.getElementById('savedReplyResult').textContent.includes('120 متر'));
+  await page.locator('#activateSuppliers').click();await page.waitForFunction(()=>document.getElementById('assistantProfile').value==='eldalel_suppliers');assert.equal(await page.locator('#replyRows .reply-row').count(),46);
+  await page.locator('#replyTestText').fill('باقات الموردين');await page.locator('#previewSavedReply').click();await page.waitForFunction(()=>document.getElementById('savedReplyResult').textContent.includes('المورد'));
+  await page.screenshot({path:'artifacts/windows-trade-assistants.png',fullPage:true});
   await page.locator('.nav-item[data-go="orders"]').click();
   await page.locator('#newOrderPanel summary').click();
   await page.locator('#orderCustomer').fill('عميل اختبار');await page.locator('#orderContact').fill('test-only');await page.locator('#orderDetails').fill('طلب تجريبي من واجهة Windows');await page.locator('#createOrder').click();

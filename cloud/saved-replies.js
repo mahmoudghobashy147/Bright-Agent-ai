@@ -4,6 +4,7 @@ const HANDOFF='محتاجين مراجعة فريق الشركة لتأكيد ا
 const {normalize,has,answerEldalel}=require('./eldalel-assistant');
 const {loadDirectoryKnowledge}=require('./eldalel-knowledge');
 const {answerSmartDigital,intents:smartIntents}=require('./smart-digital-assistant');
+const {answerTrade,profiles:tradeProfiles,shouldUseSupplier}=require('./trade-assistant');
 function parseRules(value=''){
  if(typeof value!=='string'||value.length>250000)throw Object.assign(Error('قائمة الردود تتجاوز الحد المسموح'),{status:400});
  const lines=value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
@@ -22,6 +23,12 @@ function createSavedReplyAgent({knowledgeLoader=loadDirectoryKnowledge}={}){retu
   const answer=answerSmartDigital({message,context}),exact=rules.find(rule=>rule.key===key);
   const presetDefault=exact&&smartIntents.some(i=>i.reply===exact.reply&&normalize(i.aliases[0])===exact.key);
   return exact&&!presetDefault?{...answer,reply:exact.reply}:answer;
+ }
+ if(tradeProfiles[settings.assistantProfile]||(settings.assistantProfile==='eldalel'&&shouldUseSupplier(message,context))){
+  const profile=tradeProfiles[settings.assistantProfile]?settings.assistantProfile:'eldalel_suppliers';
+  const answer=answerTrade({profile,message,context}),exact=rules.find(rule=>rule.key===key);
+  const presetDefault=exact&&tradeProfiles[profile].intents.some(i=>i.reply===exact.reply&&normalize(i.aliases[0])===exact.key);
+  return exact&&!presetDefault&&settings.assistantProfile===profile?{...answer,reply:exact.reply}:answer;
  }
  let directoryAnswer;
  if(settings.assistantProfile==='eldalel'){

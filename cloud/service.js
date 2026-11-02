@@ -21,7 +21,7 @@ const isId=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{6,100}$/.test(x);
 const txt=(x,n)=>String(x??'').trim().slice(0,n);
 const monthlyKey=()=>new Date().toISOString().slice(0,7);
 const today=()=>new Date().toISOString().slice(0,10);
-const agentSettings=b=>({assistantProfile:['eldalel','smart_digital'].includes(b.assistantProfile)?b.assistantProfile:'generic',savedReplies:(parseRules(b.savedReplies||''),b.savedReplies||''),businessDescription:txt(b.businessDescription,1500),services:txt(b.services,2500),guidelines:txt(b.guidelines,2000),greeting:txt(b.greeting,500)});
+const agentSettings=b=>({assistantProfile:['eldalel','smart_digital','khaled_design','eldalel_suppliers'].includes(b.assistantProfile)?b.assistantProfile:'generic',savedReplies:(parseRules(b.savedReplies||''),b.savedReplies||''),businessDescription:txt(b.businessDescription,1500),services:txt(b.services,2500),guidelines:txt(b.guidelines,2000),greeting:txt(b.greeting,500)});
 const superAdmin=(u,allowedUids=new Set())=>u?.brightSuperAdmin===true||(typeof u?.uid==='string'&&allowedUids.has(u.uid));
 
 const active=subscriptionActive;
@@ -126,6 +126,11 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     const user=await userFromBearer(req),tenantId=url.searchParams.get('tenantId');await companyForUser(user.uid,tenantId);
     const {intents}=require('./smart-digital-library');
     return send(res,200,{paths:intents.length,questionForms:intents.reduce((sum,i)=>sum+i.aliases.length,0),settings:{assistantProfile:'smart_digital',businessDescription:'Smart Digital — مواقع ومتاجر وتصميم ومحتوى وسوشيال وإعلانات.',services:'المواقع التعريفية والمتاجر، التصميم والهوية، المحتوى والريلز وإدارة الصفحات والإعلانات، مراجعة الدومين والاستضافة والدعم حسب الاتفاق.',greeting:'أهلًا بيك في Smart Digital 👋 نشاطك إيه ومحتاج نساعدك في إيه؟',guidelines:'لا تخترع أسعارًا أو مواعيد أو مزايا باقات أو ضمان مبيعات. اجمع المطلوب واطلب اعتماد الفريق.',savedReplies:intents.map(i=>i.aliases[0]+' | '+i.reply).join('\n')}});
+  }
+  if(req.method==='GET'&&['/api/company/agent-presets/khaled-design','/api/company/agent-presets/eldalel-suppliers'].includes(p)){
+    const user=await userFromBearer(req),tenantId=url.searchParams.get('tenantId');await companyForUser(user.uid,tenantId);
+    const profile=p.endsWith('khaled-design')?'khaled_design':'eldalel_suppliers',preset=require('./trade-library').profiles[profile],intents=preset.intents;
+    return send(res,200,{paths:intents.length,questionForms:intents.reduce((sum,i)=>sum+i.aliases.length,0),settings:{assistantProfile:profile,businessDescription:preset.name,services:preset.services,greeting:intents.find(i=>i.id==='greeting').reply,guidelines:'لا تعتمد أسعار مسودات أو مواعيد أو مخزونًا. اجمع التفاصيل ولا تؤكد حجزًا أو دفعًا قبل التحقق.',savedReplies:intents.map(i=>i.aliases[0]+' | '+i.reply).join('\n')}});
   }
   if(req.method==='GET'&&p==='/api/company/agent'){
     const user=await userFromBearer(req),tenantId=url.searchParams.get('tenantId');

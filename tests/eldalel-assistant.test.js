@@ -9,7 +9,7 @@ const tenant={plan:'starter',subscriptionStatus:'trial',renewalDate:'2099-01-01'
 const agent=createSavedReplyAgent({knowledgeLoader:async()=>facts});
 test('Arabic variants and small spelling mistakes preserve service intent without inventing prices',async()=>{
  assert.equal(normalize('المتاحة'),normalize('المتاحه'));assert.equal(normalize('مساحة ١٠٠ متر'),normalize('مساحه 100 متر'));
- for(const text of ['الباقات المتاحه','الباقات المتاحة','الباكات','باقات الموردين','باقه الشركات']){const a=await agent({message:text,tenant});assert.match(a.reply,/جنيه/);assert.match(a.reply,/سنو|السنة|سنة/);assert.doesNotMatch(a.reply,/499|999|1999/);}
+ for(const text of ['الباقات المتاحه','الباقات المتاحة','الباكات']){const a=await agent({message:text,tenant});assert.match(a.reply,/جنيه/);assert.match(a.reply,/سنو|السنة|سنة/);assert.doesNotMatch(a.reply,/499|999|1999/);}
  for(const text of ['عايز التشطببات بكام','تشطيب شقه ١٠٠ متر','اسعار التشطيبات'])assert.equal((await agent({message:text,tenant})).topic,'finishing');
  for(const text of ['الشركات المتاحة','محتاج موردين','انشاء موقع الكترونى','متجر الكتروني بكام']){const a=await agent({message:text,tenant});assert.equal(a.requiresReview,false);assert.ok(a.reply.length<1000);}
  const web=await agent({message:'متجر الكتروني بكام',tenant});assert.doesNotMatch(web.reply,/2499|200 جنيه|1000 جنيه/);assert.match(web.reply,/تفاصيل|محتاج|نشاط/);
