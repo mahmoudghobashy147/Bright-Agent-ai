@@ -46,3 +46,22 @@ test('native WhatsApp drafts keep finishing context per sender, never across con
  const m={from:'201111111111@s.whatsapp.net',timestamp:Date.now()};await call('inbox',{...m,messageId:'TRADE1',text:'عايز تصميم شقة 120 متر'});const second=await call('inbox',{...m,messageId:'TRADE2',text:'في القاهرة على الطوب'});assert.match((await root.collection('whatsappDrafts').doc(second.draftId).get()).data().reply,/120 متر/);
  const other=await call('inbox',{...m,from:'201222222222@s.whatsapp.net',messageId:'TRADE3',text:'بكام'});assert.doesNotMatch((await root.collection('whatsappDrafts').doc(other.draftId).get()).data().reply,/120 متر|القاهرة/);
 });
+test('initial complete enquiries ask only missing details, not already supplied area, city or quantity',()=>{
+ const a=answerTrade({profile:'khaled_design',message:'عايز تصميم شقة ١٢٠ متر في القاهرة'});assert.match(a.reply,/120 متر/);assert.match(a.reply,/التصميم الداخلي/);assert.doesNotMatch(a.reply,/المساحة كام|أنهي محافظة|نوع المكان/);
+ const b=answerTrade({profile:'eldalel_suppliers',message:'عايز سيراميك 200 متر في الجيزة'});assert.match(b.reply,/200 متر/);assert.doesNotMatch(b.reply,/الكمية ووحدة|لأنهي محافظة|بكمية قد/);
+ const c=answerTrade({profile:'khaled_design',message:'تصميم واجهة في القاهرة'});assert.match(c.reply,/عدد الواجهات/);assert.doesNotMatch(c.reply,/نوع المكان|المساحة كام|أنهي محافظة/);
+});
+test('supplier subscription follow-up never answers with material pricing, and new requests clear old details',()=>{
+ const profile='eldalel_suppliers';const a=answerTrade({profile,message:'باقات الموردين'});const b=answerTrade({profile,message:'السعر',context:a.conversation});assert.match(b.reply,/اشتراك الموردين/);assert.doesNotMatch(b.reply,/سعر التوريد يعتمد/);
+ const c=answerTrade({profile,message:'عايز سيراميك 200 متر في الجيزة'});const d=answerTrade({profile,message:'طلب جديد عايز خشب',context:c.conversation});assert.equal(d.conversation.slots.quantity,undefined);assert.equal(d.conversation.slots.city,undefined);assert.equal(d.conversation.slots.material,'خشب');
+ assert.doesNotThrow(()=>answerTrade({profile,message:'اهلا',context:null}));
+});
+test('explicit website and finishing requests win over supplier business keywords',async()=>{
+ const agent=createSavedReplyAgent(),tenant={agentSettings:{assistantProfile:'eldalel'}};
+ for(const message of ['عايز موقع لمصنع','عايز متجر لمورد','موقع الكتروني لمنتجات الخشب']){const a=await agent({tenant,message});assert.notEqual(a.conversation?.profile,'eldalel_suppliers',message);}
+});
+
+test('combined supplier package price requests do not append raw material price answers',async()=>{
+ const profile='eldalel_suppliers';const a=answerTrade({profile,message:'باقات الموردين بكام'});assert.match(a.reply,/باقات الموردين/);assert.doesNotMatch(a.reply,/سعر التوريد يعتمد/);
+ const agent=createSavedReplyAgent();const b=await agent({tenant:{agentSettings:{assistantProfile:'eldalel'}},message:'عايز خشب 50 متر'});assert.equal(b.conversation.profile,profile);
+});

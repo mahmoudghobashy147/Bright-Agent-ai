@@ -26,12 +26,14 @@ function extractSlots(profile,key,previous={}){
 }
 function slotSummary(s){return [s.area?s.area+' متر':null,s.property,s.city,s.condition,s.style,s.business,s.material,s.quantity,s.productCount?s.productCount+' صنف':null].filter(Boolean).join('، ');}
 function nextQuestion(profile,s,topic){
+ if(profile==='khaled_design'&&topic==='facade')return (!s.city?'في أنهي محافظة؟ ':'')+'محتاجين عدد الواجهات ومقاساتها وصور المبنى، والمطلوب تصميم ولا إشراف؟';
  if(profile==='khaled_design')return [!s.area&&topic!=='facade'?'المساحة كام متر؟':null,!s.city?'في أنهي محافظة؟':null,!s.property?'نوع المكان إيه؟':null].filter(Boolean).slice(0,2).join(' ')||'محتاج أي مخرجات بالضبط، وعندك مخطط أو صور مرجعية؟ الفريق يأكد السعر والميعاد بعد المراجعة.';
  const listing=['listing','subscriptions','catalog','ads','store'].includes(topic);
  return (listing?[!s.business?'نشاطك مورد ولا مصنع أو محل؟':null,!s.productCount?'هتعرض كام صنف تقريبًا؟':null]:[!s.material?'الخامة أو الصنف المطلوب إيه؟':null,!s.quantity?'الكمية ووحدة البيع إيه؟':null,!s.city?'التوريد لأنهي محافظة؟':null]).filter(Boolean).slice(0,2).join(' ')||'قولّي المواصفة والموعد المطلوب، والتكلفة أو التوفر يتأكدوا من صاحب الصلاحية قبل الاتفاق.';
 }
 function answerTrade({profile,message,context={},now=Date.now()}){
  const p=profiles[profile];if(!p)throw Error('unsupported trade profile');
+ context=context&&typeof context==='object'?context:{};
  const key=normalize(message),match=phrases=>has(key,phrases),byId=new Map(p.intents.map(i=>[i.id,i]));
  const fresh=context.profile===profile&&Number.isFinite(context.at)&&context.at<=now&&now-context.at<24*3600000&&byId.has(context.intentId)&&!match(['مشروع جديد','طلب جديد']);
  const previous=fresh?byId.get(context.intentId):null,slots=extractSlots(profile,key,fresh?context.slots:{}),matches=rankTrade(profile,message);
@@ -45,9 +47,13 @@ function answerTrade({profile,message,context={},now=Date.now()}){
    topic=previous.topic;intentId=previous.id;
    if(['price','facade_price','supervision_price'].includes(selected.id)&&slotSummary(slots))reply='تمام، عندي: '+slotSummary(slots)+'. '+nextQuestion(profile,slots,topic)+' السعر النهائي يحتاج اعتمادًا، ومفيش سعر تلقائي من عرض قديم.';
   }
+  const labels={interior:'التصميم الداخلي',facade:'تصميم الواجهة',execution:'طلب التشطيبات',commercial:'تصميم المكان التجاري',style:'ستايل التصميم',listing:'عرض نشاطك في الدليل',subscriptions:'اشتراك الموردين',materials:'طلب الخامات'};
+  const collect=profile==='khaled_design'?['interior','facade','execution','apartment','villa','commercial','renovation','style']:['join','packages','ceramics','cement','wood','plumbing','electrical','quantity','price'];
+  if(collect.includes(selected.id)&&slotSummary(slots))reply='بخصوص '+(labels[topic]||'طلبك')+': عندي '+slotSummary(slots)+'. '+nextQuestion(profile,slots,topic);
+  if(profile==='eldalel_suppliers'&&selected.id==='price'&&previous&&['listing','subscriptions','catalog','ads','store'].includes(previous.topic))reply='بخصوص اشتراك الموردين: نراجع سعر الباقة ومزاياها ومدتها من عرض معتمد وساري، ومش هنستخدم سعر توريد خامة أو باقة صنايعي بدلها. '+nextQuestion(profile,slots,previous.topic);
   if(previous&&['handover_state','style'].includes(selected.id)&&slotSummary(slots)){topic=previous.topic;intentId=previous.id;reply='تمام، عندي: '+slotSummary(slots)+'. '+nextQuestion(profile,slots,topic);}
   const compound=has(key,['بكام','السعر','التكلفة'])||/(?:^|\s)و(?:بيخلص|هستلم|الشحن|امتي)/u.test(key);
-  const second=matches.find(x=>x.intent.id!==selected.id&&['price','deadline','delivery','shipping','payments','included'].includes(x.intent.id))?.intent;
+  const second=matches.find(x=>!(profile==='eldalel_suppliers'&&x.intent.id==='price'&&['listing','subscriptions','catalog','ads','store'].includes(topic))&&x.intent.id!==selected.id&&['price','deadline','delivery','shipping','payments','included'].includes(x.intent.id))?.intent;
   if(compound&&second&&reply.length+second.reply.length<950)reply+='\n\n'+second.reply;
  }else if(slotSummary(slots))reply='تمام، عندي التفاصيل دي: '+slotSummary(slots)+'. '+nextQuestion(profile,slots,topic);
  else if(match(['اه','ايوه','تمام','ماشي','موافق']))reply='تمام، نكمل التفاصيل الأول: '+nextQuestion(profile,slots,topic)+' المحادثة دي مش تأكيد حجز أو دفع أو بدء تنفيذ.';
@@ -56,9 +62,9 @@ function answerTrade({profile,message,context={},now=Date.now()}){
 }
 function shouldUseSupplier(message,context){
  const key=normalize(message);
- if(has(key,['صور','صورة','وريني','مشروع جديد','طلب جديد']))return false;
- if(has(key,['مورد','موردين','مصنع','خامات','توريد','كتالوج','منتجات','باقات الشركات','باقة الشركات']))return true;
- if(has(key,['تصميم داخلي','تشطيب شقة','عايز موقع','موقع الكتروني','سمارت ديجيتال']))return false;
+ if(has(key,['صور','صورة','وريني']))return false;
+ if(has(key,['تصميم داخلي','تشطيب شقة','عايز موقع','موقع الكتروني','متجر الكتروني','عايز متجر','سمارت ديجيتال']))return false;
+ if(has(key,['مورد','موردين','مصنع','خامات','توريد','كتالوج','منتجات','باقات الشركات','باقة الشركات',...materials]))return true;
  return context?.profile==='eldalel_suppliers'&&Number.isFinite(context.at)&&context.at<=Date.now()&&Date.now()-context.at<24*3600000;
 }
 module.exports={answerTrade,rankTrade,profiles,shouldUseSupplier,extractSlots};
