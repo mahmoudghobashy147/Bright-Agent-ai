@@ -44,3 +44,10 @@ test('native sender fences recipients and sessions, persists attempted dispatch 
   bridge.stop();await assert.rejects(bridge.reply(input));await start();const restored=receive('N2');assert.equal((await bridge.reply(restored)).status,'unknown');assert.equal(sent.length,3);
  }finally{bridge.stop();fs.rmSync(folder,{recursive:true,force:true});}
 });
+
+test('customer assignment preserves the existing automatic replies until a manager explicitly chooses human handoff',async()=>{
+ const {call,root}=await fixture();await call('bind',{autoReplyEnabled:true});
+ const message={messageId:'PRESERVE_AUTO_1',from:'201777777777@s.whatsapp.net',text:'السعر',timestamp:Date.now()};const synced=await call('inbox',message),stored=(await root.collection('whatsappInbox').doc(synced.messageId).get()).data(),lead=root.collection('performanceLeads').doc(stored.leadId);
+ await lead.update({assignedTo:'owner001'});assert.equal((await call('reply-claim',{sourceMessageId:message.messageId,from:message.from})).allowed,true);
+ await lead.update({pauseAutomation:true});await call('inbox',{...message,messageId:'PRESERVE_AUTO_2'});const blocked=await call('reply-claim',{sourceMessageId:'PRESERVE_AUTO_2',from:message.from});assert.equal(blocked.allowed,false);assert.equal(blocked.status,'assigned_to_employee');
+});

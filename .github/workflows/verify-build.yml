@@ -29,7 +29,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Test real Auth, API startup and Firestore in isolated emulators
-        run: npx --yes firebase-tools emulators:exec --config firebase/emulator.json --project demo-bright-ai --only firestore,auth "node --test tests/firestore.test.js tests/apphosting-startup.test.js"
+        run: npx --yes firebase-tools emulators:exec --config firebase/emulator.json --project demo-bright-ai --only firestore,auth "node --test tests/firestore.test.js tests/apphosting-startup.test.js tests/team-performance-firestore.test.js"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

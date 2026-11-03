@@ -1,9 +1,11 @@
+import {initTeamPerformance} from './team-performance.js';
 let replyPreviewContext,replyPreviewGeneration=0;
 function resetReplyPreview(){replyPreviewContext=undefined;replyPreviewGeneration++;}
 import {eldalelPreset} from './eldalel-preset.js';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
 import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut,sendPasswordResetEmail} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
 import {firebaseConfig} from './firebase-config.js';
+let localHumanSession=null,localHumanBusy=false;
 let localSyncGeneration=0,localBinding=Promise.resolve(),localIncoming=Promise.resolve(),localAutoReply=false;
 const app=initializeApp(firebaseConfig),auth=getAuth(app);
 const el=id=>document.getElementById(id),status=(s,error=false)=>{el('status').textContent=s;el('status').className=error?'error':''};
@@ -20,7 +22,7 @@ onAuthStateChanged(auth,async u=>{
  for(const id of ['metrics','conversations','orders','members','drafts','whatsappInbox','reviewTasks','orderLeads','adminCompanies','billingInfo','invoices','checkoutLink'])el(id).replaceChildren();
  el('tenantId').replaceChildren(new Option('اختر شركتك',''));
  if(!u){status('');return;}
- try{const data=await api('/api/me/companies');if(auth.currentUser?.uid!==u.uid)return;show('adminPanel',data.superAdmin);for(const c of data.companies)el('tenantId').append(new Option(c.name+' — '+c.role,c.id));if(data.companies.length===1){el('tenantId').value=data.companies[0].id;el('load').click();}if(data.superAdmin)await listCompanies();}catch(e){status('تعذر تحميل الشركات: '+e.message,true);}
+ try{const data=await api('/api/me/companies');if(auth.currentUser?.uid!==u.uid)return;show('adminPanel',data.superAdmin);for(const c of data.companies)el('tenantId').append(new Option(c.name+' — '+c.role,c.id));if(data.companies.length===1){el('tenantId').value=data.companies[0].id;el('load').click();}window.dispatchEvent(new Event('bright:companies-ready'));if(data.superAdmin)await listCompanies();}catch(e){status('تعذر تحميل الشركات: '+e.message,true);}
 });
 el('tenantId').addEventListener('change',()=>{resetReplyPreview();stopLocalSync();el('savedReplyResult').textContent='';for(const id of ['metrics','conversations','orders','members','drafts','whatsappInbox','reviewTasks','orderLeads','billingInfo','invoices','checkoutLink'])el(id).replaceChildren();for(const key of ['businessDescription','services','guidelines','greeting','savedReplies'])el(key).value='';renderReplyRows();el('load').click();});
 el('load').addEventListener('click',async()=>{const id=el('tenantId').value.trim();if(!/^[a-zA-Z0-9_-]{6,100}$/.test(id)){status('معرّف الشركة غير صالح',true);return}el('load').disabled=true;try{const q=encodeURIComponent(id);const [company,history]=await Promise.all([api(`/api/company?tenantId=${q}`),api(`/api/company/conversations?tenantId=${q}`)]);const m=el('metrics');m.replaceChildren(metric('الشركة',company.tenant.name),metric('الباقة',company.tenant.plan),metric('حالة الاشتراك',company.tenant.subscriptionStatus),metric('الاستخدام هذا الشهر',history.usage.reserved));const c=el('conversations');c.replaceChildren();for(const record of history.conversations){const div=document.createElement('div');div.className='conversation';const question=document.createElement('p'),answer=document.createElement('p');question.textContent='العميل: '+record.message;answer.textContent='Bright Ai: '+record.reply;div.append(question,answer);c.append(div)}if(!history.conversations.length)c.textContent='لا توجد محادثات حاليًا';const a=await api(`/api/company/agent?tenantId=${q}`);el('assistantProfile').value=a.settings.assistantProfile||'generic';for(const key of ['businessDescription','services','guidelines','greeting','savedReplies'])el(key).value=a.settings[key]||'';renderReplyRows();try{const a=await api(`/api/company/automation?tenantId=${q}`);el('automationMode').value=a.settings.mode}catch{}status('تم تحميل البيانات')}catch(e){el('metrics').replaceChildren();el('conversations').replaceChildren();status('تعذر عرض الشركة أو لا تملك صلاحية الوصول.',true)}finally{el('load').disabled=false}});
@@ -65,7 +67,7 @@ el('loadWhatsapp').addEventListener('click',async()=>{
       const manual=document.createElement('button');manual.textContent='إرسال رد يدوي';
       manual.addEventListener('click',async()=>{
         if(!input.value.trim())return;if(!window.confirm('تأكيد إرسال هذا النص فعليًا للعميل؟'))return;manual.disabled=true;
-        try{await api('/api/company/whatsapp/reply',{tenantId,messageId:m.id,reply:input.value.trim()});status('تم طلب الإرسال');input.value=''}
+        try{const result=await api(m.source==='local_qr'?'/api/company/whatsapp/qr-human-reply':'/api/company/whatsapp/reply',{tenantId,messageId:m.id,reply:input.value.trim()});status(m.source==='local_qr'?'تم وضع الرد في انتظار جلسة Windows المتصلة؛ لا يُحسب ردًا ناجحًا حتى قبول واتساب.':'تم طلب الإرسال');input.value=''}
         catch(e){status('تعذر الإرسال: '+e.message,true)}finally{manual.disabled=false}
       });
       const draft=document.createElement('button');draft.textContent='اقتراح رد محفوظ';
@@ -74,7 +76,7 @@ el('loadWhatsapp').addEventListener('click',async()=>{
         try{const result=await api('/api/company/whatsapp/draft',{tenantId,messageId:m.id});status('تم إنشاء مسودة. راجعها قبل الإرسال.');item.append(replyButton(tenantId,m.id,result.reply))}
         catch(e){status('تعذر إنشاء المسودة: '+e.message,true)}finally{draft.disabled=false}
       });
-      if(m.source==='local_qr'){const note=document.createElement('p');note.textContent=m.status==='replied'?'تم إرسال الرد التلقائي عبر جلسة واتساب المحلية.':m.status==='reply_unknown'?'نتيجة الإرسال غير مؤكدة؛ لن يُعاد تلقائيًا لتجنب التكرار.':'مزامنة QR — تابع حالة الرد في المسودات.';item.append(label,note);}else item.append(label,input,manual,draft);host.append(item);
+      if(m.source==='local_qr'){const note=document.createElement('p');note.textContent=m.status==='replied'?'تم إرسال الرد التلقائي عبر جلسة واتساب المحلية.':m.status==='reply_unknown'?'نتيجة الإرسال غير مؤكدة؛ لن يُعاد تلقائيًا لتجنب التكرار.':'مزامنة QR — تابع حالة الرد في المسودات.';item.append(label,note,input,manual);}else item.append(label,input,manual,draft);host.append(item);
     }
     if(!r.messages.length)host.textContent='لا توجد رسائل واردة';
   }catch(e){status('تعذر عرض رسائل واتساب: '+e.message,true)}
@@ -163,7 +165,7 @@ el('loadReviewTasks').addEventListener('click',async()=>{
 el('resetPassword').addEventListener('click',async()=>{try{await sendPasswordResetEmail(auth,el('email').value.trim());status('لو البريد مسجل، ستصلك تعليمات استعادة كلمة المرور.');}catch{status('تعذر الطلب. تحقق من البريد ثم حاول لاحقًا.',true);}});
 el('refreshCompanies').addEventListener('click',()=>listCompanies().catch(e=>status(e.message,true)));
 el('loadMembers').addEventListener('click',async()=>{try{const data=await api('/api/company/members?tenantId='+encodeURIComponent(el('tenantId').value));el('members').replaceChildren();for(const m of data.members){const row=document.createElement('p');row.textContent=m.uid+' — '+m.role+' — '+(m.active?'نشط':'موقوف');el('members').append(row);}}catch(e){status(e.message,true);}});
-el('saveMember').addEventListener('click',async()=>{try{await api('/api/company/members',{tenantId:el('tenantId').value,uid:el('memberUid').value.trim(),role:el('memberRole').value,active:el('memberActive').value==='true'});status('تم حفظ صلاحية الموظف');el('loadMembers').click();}catch(e){status(e.message,true);}});
+el('saveMember').addEventListener('click',async()=>{try{await api('/api/company/members',{tenantId:el('tenantId').value,uid:el('memberUid').value.trim(),role:el('memberRole').value,active:el('memberActive').value==='true',name:el('memberName').value,jobTitle:el('memberJobTitle').value});status('تم حفظ صلاحية الموظف');el('loadMembers').click();}catch(e){status(e.message,true);}});
 el('saveChannel').addEventListener('click',async()=>{try{await api('/api/admin/whatsapp-channel',{tenantId:el('channelTenantId').value.trim(),phoneNumberId:el('channelNumberId').value.trim()});status('تم حفظ ربط الرقم. الإرسال يحتاج تفعيلًا منفصلًا.');}catch(e){status(e.message,true);}});
 el('loadInvoices').addEventListener('click',async()=>{try{const data=await api('/api/company/invoices?tenantId='+encodeURIComponent(el('tenantId').value));el('invoices').replaceChildren();for(const i of data.invoices){const row=document.createElement('p');row.textContent=i.id+' — '+i.amountMinor/100+' ج — '+i.status;el('invoices').append(row);}if(!data.invoices.length)el('invoices').textContent='لا توجد فواتير تجريبية';}catch(e){status(e.message,true);}});
 let checkoutRequestId;
@@ -175,7 +177,7 @@ el('sandboxCheckout').addEventListener('click',async()=>{
 
 el('previewSavedReply').addEventListener('click',async()=>{const btn=el('previewSavedReply'),tenantId=el('tenantId').value,uid=auth.currentUser?.uid,generation=replyPreviewGeneration;btn.disabled=true;el('savedReplyResult').textContent='';try{const r=await api('/api/company/replies/preview',{tenantId,text:el('replyTestText').value,context:replyPreviewContext});if(generation!==replyPreviewGeneration||tenantId!==el('tenantId').value||uid!==auth.currentUser?.uid)return;replyPreviewContext=r.conversation;el('savedReplyImage').classList.toggle('hidden',!r.media);if(r.media?.mimeType==='image/jpeg')el('savedReplyImage').src='data:image/jpeg;base64,'+r.media.data;else el('savedReplyImage').removeAttribute('src');el('savedReplyResult').textContent=(r.requiresReview?'تحتاج مراجعة: ':'رد محفوظ: ')+r.reply+' — لم يتم إرسال رسائل';}catch(e){status(e.message,true)}finally{btn.disabled=false}});
 
-function navigate(page){if(page==='admin'&&el('adminPanel').classList.contains('hidden'))return;document.querySelectorAll('[data-page]').forEach(v=>v.classList.toggle('active-view',v.dataset.page===page));document.querySelectorAll('.nav-item').forEach(b=>{const active=b.dataset.go===page;b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false');});const titles={overview:'نظرة عامة',replies:'الموظف والردود',orders:'الطلبات',inbox:'المحادثات',team:'فريق العمل',billing:'الاشتراك',admin:'إدارة المنصة'};el('pageTitle').textContent=titles[page]||titles.overview;window.scrollTo({top:0,behavior:'instant'});}
+function navigate(page){if(page==='admin'&&el('adminPanel').classList.contains('hidden'))return;document.querySelectorAll('[data-page]').forEach(v=>v.classList.toggle('active-view',v.dataset.page===page));document.querySelectorAll('.nav-item').forEach(b=>{const active=b.dataset.go===page;b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false');});const titles={overview:'نظرة عامة',replies:'الموظف والردود',orders:'الطلبات',inbox:'المحادثات',team:'فريق العمل',performance:'أداء الموظفين والمبيعات',billing:'الاشتراك',admin:'إدارة المنصة'};el('pageTitle').textContent=titles[page]||titles.overview;window.scrollTo({top:0,behavior:'instant'});}
 document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.go)));
 
 function syncReplyRows(){el('savedReplies').value=Array.from(el('replyRows').children).map(row=>{const q=row.querySelector('input').value.trim(),a=row.querySelector('textarea').value.trim();return q||a?q+' | '+a:''}).filter(Boolean).join('\n');}
@@ -193,7 +195,7 @@ el('addSavedReply').addEventListener('click',()=>addReplyRow());
 document.querySelectorAll('[data-inbox-go]').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('[data-inbox]').forEach(p=>p.classList.toggle('inbox-active',p.dataset.inbox===btn.dataset.inboxGo));document.querySelectorAll('[data-inbox-go]').forEach(b=>b.setAttribute('aria-selected',String(b===btn)));}));
 
 function localStatus(text,qr=null){el('localWaState').textContent=text;el('localWaQr').classList.toggle('hidden',!qr);if(qr&&/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(qr))el('localWaQr').src=qr;else el('localWaQr').removeAttribute('src');}
-function stopLocalSync(){if(window.brightWhatsApp?.closeWeb)window.brightWhatsApp.closeWeb().catch(()=>{});localAutoReply=false;localSyncGeneration++;localBinding=Promise.resolve();localIncoming=Promise.resolve();el('localWaLog').textContent='';localStatus('غير متصل');if(window.brightWhatsApp)window.brightWhatsApp.stop().catch(()=>{});}
+function stopLocalSync(){localHumanSession=null;if(window.brightWhatsApp?.closeWeb)window.brightWhatsApp.closeWeb().catch(()=>{});localAutoReply=false;localSyncGeneration++;localBinding=Promise.resolve();localIncoming=Promise.resolve();el('localWaLog').textContent='';localStatus('غير متصل');if(window.brightWhatsApp)window.brightWhatsApp.stop().catch(()=>{});}
 el('stopLocalWa').addEventListener('click',()=>stopLocalSync());
 el('startLocalWa').addEventListener('click',async()=>{
  if(!window.brightWhatsApp){localStatus('المزامنة تحتاج نسخة Windows المحدثة؛ فتح واتساب في المتصفح وحده لا يزامن الرسائل.');return;}
@@ -209,19 +211,19 @@ if(window.brightWhatsApp){
  window.brightWhatsApp.onStatus(data=>{
   if(!matches(data))return;
   if(data.state==='qr')localStatus('امسح الكود من موبايلك: الأجهزة المرتبطة ← ربط جهاز',data.qr);
-  else if(data.state==='connected'){
+  else if(data.state==='connected'){localHumanSession={tenantId:data.tenantId,uid:data.uid,sessionId:data.sessionId};
    const generation=localSyncGeneration;localStatus('تم اتصال واتساب. جاري ربطه بالشركة…');
    localBinding=api('/api/company/local-whatsapp/bind',{tenantId:data.tenantId,account:data.account,sessionId:data.sessionId,autoReplyEnabled:localAutoReply}).then(result=>{if(generation===localSyncGeneration)localStatus(result.autoReplyEnabled?'متصل — الرد التلقائي مفعل لأي رقم يرسل رسالة نصية خاصة جديدة.':'متصل — مزامنة ومسودات فقط. الرد التلقائي متوقف.');}).catch(e=>{if(generation===localSyncGeneration){localStatus('تعذر ربط الشركة: '+e.message);window.brightWhatsApp.stop().catch(()=>{});}throw e;});localBinding.catch(()=>{});
   }else if(data.state==='connecting')localStatus('جاري الاتصال بواتساب…');
-  else localStatus(data.error||'انقطع الاتصال. اضغط بدء المزامنة لإعادة الاتصال.');
+  else {localHumanSession=null;localStatus(data.error||'انقطع الاتصال. اضغط بدء المزامنة لإعادة الاتصال.');}
  });
  window.brightWhatsApp.onIncoming(data=>{
   if(!matches(data))return;const generation=localSyncGeneration;
   localIncoming=localIncoming.catch(()=>{}).then(async()=>{
    await localBinding;if(generation!==localSyncGeneration||!matches(data))return;
-   await api('/api/company/local-whatsapp/inbox',{tenantId:data.tenantId,account:data.account,sessionId:data.sessionId,messageId:data.messageId,from:data.from,text:data.text,timestamp:data.timestamp});
+   await api('/api/company/local-whatsapp/inbox',{tenantId:data.tenantId,account:data.account,sessionId:data.sessionId,messageId:data.messageId,from:data.from,text:data.text,timestamp:data.timestamp,...(data.media?{media:data.media}:{})});
    let messageStatus='تمت مزامنة رسالة وتجهيز مسودة.';
-   if(localAutoReply){
+   if(localAutoReply&&!data.media){
     const request={tenantId:data.tenantId,account:data.account,sessionId:data.sessionId,sourceMessageId:data.messageId,from:data.from};
     const claim=await api('/api/company/local-whatsapp/reply-claim',request);
     if(generation!==localSyncGeneration||!matches(data))return;
@@ -246,3 +248,7 @@ el('activateSmartDigital').addEventListener('click',async()=>{const btn=el('acti
 for(const [id,path,profile,name] of [['activateKhaledDesign','khaled-design','khaled_design','خالد ديزاين'],['activateSuppliers','eldalel-suppliers','eldalel_suppliers','الموردين']])el(id).addEventListener('click',async()=>{const btn=el(id);btn.disabled=true;try{const tenantId=el('tenantId').value;if(!tenantId)throw Error('اختر الشركة أولًا');const preset=await api('/api/company/agent-presets/'+path+'?tenantId='+encodeURIComponent(tenantId));if(el('tenantId').value!==tenantId)throw Error('تغيرت الشركة؛ أعد الاختيار');const saved=await api('/api/company/agent',{tenantId,...preset.settings});if(el('tenantId').value!==tenantId)return;resetReplyPreview();el('assistantProfile').value=profile;for(const key of ['businessDescription','services','guidelines','greeting','savedReplies'])el(key).value=saved.settings[key]||'';renderReplyRows();status('تم تجهيز '+preset.paths+' مسار و'+preset.questionForms+' صيغة سؤال لـ'+name+'. جرّب الحوار بدون إرسال.');}catch(e){status(e.message,true)}finally{btn.disabled=false}});
 
 el('openWhatsAppInterface').addEventListener('click',async()=>{const button=el('openWhatsAppInterface'),out=el('whatsAppInterfaceStatus');button.disabled=true;try{if(!window.brightWhatsApp?.openWeb)throw Error('واجهة المحادثات تحتاج نسخة Windows 26.4.0 أو أحدث. حدّث البرنامج ثم افتحه.');const tenantId=el('tenantId').value,uid=auth.currentUser?.uid;if(!tenantId||!uid)throw Error('سجّل الدخول واختر الشركة أولًا');await api('/api/company/members?tenantId='+encodeURIComponent(tenantId));if(el('tenantId').value!==tenantId||auth.currentUser?.uid!==uid)return;await window.brightWhatsApp.openWeb({tenantId,uid});out.textContent='تم فتح واجهة واتساب داخل Bright Ai. الربط الظاهر فيها مستقل عن المزامنة والرد التلقائي.';}catch(e){out.textContent=e.message;}finally{button.disabled=false}});
+
+initTeamPerformance({api,auth,onAuthStateChanged});
+
+setInterval(async()=>{const c=localHumanSession;if(!c||localHumanBusy||!window.brightWhatsApp?.humanDrain||auth.currentUser?.uid!==c.uid||el('tenantId').value!==c.tenantId)return;localHumanBusy=true;try{await localBinding;const token=await auth.currentUser.getIdToken();if(c!==localHumanSession)return;await window.brightWhatsApp.humanDrain({...c,token});}catch(e){el('localWaLog').textContent='الرد اليدوي ينتظر جلسة صالحة أو يحتاج مراجعة نتيجة الإرسال.';}finally{localHumanBusy=false;}},5000);

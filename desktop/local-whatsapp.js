@@ -4,9 +4,10 @@ function inbound(message,after){
  const key=message?.key||{},from=String(key.remoteJid||'').replace(/:\d+@/,'@');
  const at=Number(message?.messageTimestamp)*1000;
  if(key.fromMe||!key.id||!/^\d{5,30}@(s\.whatsapp\.net|lid)$/.test(from)||!Number.isFinite(at)||at<after-2000)return null;
- const text=message?.message?.conversation||message?.message?.extendedTextMessage?.text;
+ const image=message?.message?.imageMessage;
+ const text=message?.message?.conversation||message?.message?.extendedTextMessage?.text||(image?(image.caption||'[صورة مرفقة]'):null);
  if(typeof text!=='string'||!text.trim())return null;
- return {messageId:String(key.id).slice(0,120),from,text:text.trim().slice(0,1500),timestamp:at};
+ return {messageId:String(key.id).slice(0,120),from,text:text.trim().slice(0,1500),timestamp:at,...(image?{media:{kind:'image',id:String(key.id).slice(0,120),sha256:image.fileSha256&&Buffer.from(image.fileSha256).length===32?Buffer.from(image.fileSha256).toString('hex'):null}}:{})};
 }
 function encryptedAuth({file,safeStorage,lib}){
  if(!safeStorage.isEncryptionAvailable())throw Error('تشفير جلسة واتساب غير متاح على الجهاز');
@@ -16,6 +17,8 @@ function encryptedAuth({file,safeStorage,lib}){
  data.pending||={};data.outbound||={};
  const key=message=>crypto.createHash('sha256').update(message.from+'|'+message.messageId).digest('hex');
  const deliveries={
+  beginHuman:message=>{const id=key({...message,messageId:'human_'+message.outboundId});if(data.outbound[id])return {previous:data.outbound[id]};for(const [k,v] of Object.entries(data.outbound))if(v.at<Date.now()-48*3600000)delete data.outbound[k];if(Object.keys(data.outbound).length>=10000)throw Error('سجل الإرسال ممتلئ');data.outbound[id]={status:'unknown',at:Date.now(),claimId:message.claimId};save();return {started:true};},
+  completeHuman:(message,result)=>{const id=key({...message,messageId:'human_'+message.outboundId});data.outbound[id]={...data.outbound[id],...result};save();},
   begin:message=>{const id=key(message),previous=data.outbound[id];if(previous)return {previous};const pending=data.pending[id];if(!pending||pending.timestamp<Date.now()-5*60000)throw Error('لا توجد رسالة واردة حديثة لهذا الرد');for(const [k,v] of Object.entries(data.outbound))if(v.at<Date.now()-48*3600000)delete data.outbound[k];if(Object.keys(data.outbound).length>=10000)throw Error('سجل الإرسال ممتلئ');data.outbound[id]={status:'unknown',at:Date.now(),claimId:message.claimId};save();return {started:true};},
   complete:(message,result)=>{data.outbound[key(message)]={...data.outbound[key(message)],...result};save();}
  };
@@ -79,6 +82,16 @@ function createLocalWhatsApp({safeStorage,userData,emit,runtimeLoader=loadRuntim
   }catch{result={status:'unknown'};}finally{clearTimeout(timeout);}
   auth.deliveries.complete(input,result);return result;
  }
- return {start,stop,reply,ack:input=>{if(matches(input)){authState?.ack(input);return {ok:true};}throw Error('session changed');}};
+ async function humanDrain(input){
+  if(!matches(input)||!socket?.user?.id||typeof input.token!=='string'||input.token.length>10000)throw Error('جلسة غير متاحة');
+  const ctx=context,activeSocket=socket,auth=authState,current=generation,account=String(socket.user.id).replace(/:\d+@/,'@');
+  const post=async(action,extra={})=>{const r=await fetch(ctx.origin+'/api/company/local-whatsapp/'+action,{method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),headers:{Authorization:'Bearer '+input.token,'Content-Type':'application/json'},body:JSON.stringify({tenantId:ctx.tenantId,account,sessionId:ctx.sessionId,...extra})});const j=await r.json();if(!r.ok)throw Error('تعذر تجهيز الرد اليدوي');return j;};
+  const job=await post('human-claim');if(!job.allowed)return {empty:true};
+  if(current!==generation||context!==ctx||socket!==activeSocket||!/^\d{5,30}@(s\.whatsapp\.net|lid)$/.test(job.from)||!/^([a-f0-9]{64})$/.test(job.outboundId)||!/^([a-f0-9]{32})$/.test(job.claimId)||typeof job.reply!=='string'||!job.reply.trim()||job.reply.length>2000)throw Error('رد غير صالح أو جلسة تغيرت');
+  const previous=auth.deliveries.beginHuman(job).previous;let result=previous,timer;
+  if(!result){try{const sent=await Promise.race([activeSocket.sendMessage(job.from,{text:job.reply}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('timeout')),15000);})]);result=sent?.key?.id?{status:'sent',whatsappMessageId:String(sent.key.id)}:{status:'unknown'};}catch{result={status:'unknown'};}finally{clearTimeout(timer);}auth.deliveries.completeHuman(job,result);}
+  await post('human-result',{outboundId:job.outboundId,claimId:job.claimId,...result});return result;
+ }
+ return {start,stop,reply,humanDrain,ack:input=>{if(matches(input)){authState?.ack(input);return {ok:true};}throw Error('session changed');}};
 }
 module.exports={inbound,encryptedAuth,createLocalWhatsApp,loadRuntime};

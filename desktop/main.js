@@ -41,6 +41,7 @@ app.whenReady().then(()=>{
  ipcMain.handle('bright:wa:web:close',event=>{if(!trustedConsole(event))throw Error('Access denied');whatsappInterface.close();});
  ipcMain.handle('bright:wa:start',async(event,input)=>{if(!trustedConsole(event))throw Error('Access denied');return localWhatsApp.start({tenantId:String(input?.tenantId||''),uid:String(input?.uid||''),autoReplyEnabled:input?.autoReplyEnabled===true,origin:target.origin});});
  ipcMain.handle('bright:wa:reply',async(event,input)=>{if(!trustedConsole(event))throw Error('Access denied');return localWhatsApp.reply(input);});
+ ipcMain.handle('bright:wa:human-drain',async(event,input)=>{if(!trustedConsole(event))throw Error('Access denied');return localWhatsApp.humanDrain(input);});
  ipcMain.handle('bright:wa:ack',(event,input)=>{if(!trustedConsole(event))throw Error('Access denied');return localWhatsApp.ack(input);});
  ipcMain.handle('bright:wa:stop',event=>{if(!trustedConsole(event))throw Error('Access denied');return localWhatsApp.stop();});
  win.webContents.on('will-navigate',()=>{localWhatsApp.stop();whatsappInterface.close();});win.on('closed',()=>localWhatsApp.stop());

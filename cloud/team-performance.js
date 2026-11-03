@@ -1,0 +1,85 @@
+'use strict';
+const crypto=require('node:crypto');
+const hash=s=>crypto.createHash('sha256').update(String(s)).digest('hex');
+const fail=(message,status=400)=>{throw Object.assign(Error(message),{status});};
+const manager=m=>m?.active===true&&['owner','admin'].includes(m.role);
+const ms=v=>typeof v==='number'?v:v?.toMillis?.()||v?.toDate?.().getTime()||Date.parse(v)||0;
+const leadKey=m=>hash((m.source==='local_qr'?'qr:'+m.accountHash:'meta:'+m.phoneNumberId)+'|'+m.from);
+function imageMeta(value){
+ if(!value||value.kind!=='image')return null;
+ const id=typeof value.id==='string'?value.id.slice(0,120):'';
+ const sha256=/^[a-f0-9]{64}$/i.test(value.sha256||'')?value.sha256.toLowerCase():null;
+ return {kind:'image',id,sha256};
+}
+function conversationHints(text){const s=String(text||'').normalize('NFKC').toLowerCase();return {paymentMention:/تحويل|حولت|حواله|حوالة|ايصال|إيصال|فودافون|انستا.?باي/.test(s),orderMention:/اشترك|عايز احجز|طلب|اشتري|شراء|سعر|تكلف/.test(s),needsFollowup:/بعدين|هفكر|راجعني|كلمني/.test(s),basis:'keyword_hint_not_proof'};}
+function officeMinutes(start,end,schedule={}){
+ if(!Number.isFinite(start)||!Number.isFinite(end)||end<start||end-start>32*86400000)return null;
+ const tz=schedule.timezone||'Africa/Cairo',from=schedule.startMinute??540,to=schedule.endMinute??1020,week=schedule.weekdays||[0,1,2,3,4];
+ const fmt=new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
+ const parts=t=>Object.fromEntries(fmt.formatToParts(t).filter(p=>p.type!=='literal').map(p=>[p.type,p.value]));
+ const day=t=>{const p=parts(t);return `${p.year}-${p.month}-${p.day}`;};
+ const localUtc=(date,minute)=>{const b=Date.parse(date+'T00:00:00Z')+minute*60000;let guess=b;for(let i=0;i<3;i++){const p=parts(guess),asUtc=Date.UTC(+p.year,+p.month-1,+p.day,+p.hour,+p.minute,+p.second);guess+=b-asUtc;}return guess;};
+ let total=0;const last=Date.parse(day(end)+'T00:00:00Z');
+ for(let d=Date.parse(day(start)+'T00:00:00Z');d<=last;d+=86400000){if(!week.includes(new Date(d).getUTCDay()))continue;const date=new Date(d).toISOString().slice(0,10);total+=Math.max(0,Math.min(end,localUtc(date,to))-Math.max(start,localUtc(date,from)));}
+ return total/60000;
+}
+function presenceState(p,now){if(!p?.lastSeenMs||now-p.lastSeenMs>120000)return 'offline';return ['available','busy','away','off_shift'].includes(p.availability)?p.availability:'offline';}
+function buildReport({members,leads,messages,outbox,sales,receipts,presence,now=Date.now(),since=0,schedule}){
+ const rows=new Map(members.map(m=>[m.uid,{uid:m.uid,name:m.name||m.uid,role:m.role,jobTitle:m.jobTitle||'',active:m.active,assigned:0,acquiredCustomers:0,paidCustomers:0,salesCount:0,revenuePiastres:0,humanReplies:0,automatedReplies:0,responseMinutes:[],rating:null,presence:presenceState(presence.find(p=>p.uid===m.uid),now),lastSeenMs:presence.find(p=>p.uid===m.uid)?.lastSeenMs||null}]));
+ const leadMap=new Map(leads.map(l=>[l.id,l])),customerSets=new Map();
+ for(const l of leads)if(rows.has(l.assignedTo))rows.get(l.assignedTo).assigned++;
+ const threads=new Map();const push=(key,event)=>{if(!threads.has(key))threads.set(key,[]);threads.get(key).push(event);};
+ for(const m of messages){const at=Number(m.receivedAtMillis)||ms(m.createdAt);if(at>=since&&at<=now)push(m.leadId||leadKey(m),{kind:'in',at,assigned:m.trackingAssigneeUid||null,id:m.id});}
+ const messageMap=new Map(messages.map(m=>[m.id,m]));let unmeasuredHuman=0,automaticReplies=0;
+ for(const o of outbox){if(o.status!=='sent')continue;const original=messageMap.get(o.fromMessageId||o.sourceMessageId);if(!original)continue;const actor=rows.get(o.createdBy),automatic=o.actorKind!=='human'&&(o.actorKind==='automation'||o.source==='local_qr'||String(o.id).startsWith('local_'));if(automatic){automaticReplies++;if(actor)actor.automatedReplies++;continue;}const at=o.sentAtMs||ms(o.updatedAt);if(!at){unmeasuredHuman++;continue;}if(at<since||at>now)continue;if(actor)actor.humanReplies++;push(original.leadId||leadKey(original),{kind:'out',at,uid:o.createdBy});}
+ let waiting=0,unassignedWaiting=0;const waitingThreads=[];
+ for(const [key,events] of threads){events.sort((a,b)=>a.at-b.at||((a.kind==='in'?0:1)-(b.kind==='in'?0:1))||String(a.id||a.uid||'').localeCompare(String(b.id||b.uid||'')));let pending=null;for(const e of events){if(e.kind==='in'){pending||=e;}else if(pending){const r=rows.get(e.uid);const lead=leadMap.get(key),assignmentStart=lead?.assignedTo===e.uid&&lead.assignedAtMs<=e.at?lead.assignedAtMs:null;
+ if(r&&(pending.assigned===e.uid||assignmentStart!==null)){const minutes=officeMinutes(pending.assigned===e.uid?pending.at:Math.max(pending.at,assignmentStart),e.at,schedule);if(minutes!==null)r.responseMinutes.push(minutes);}pending=null;}}if(pending){waiting++;const lead=leadMap.get(key),assignedTo=lead?.assignedTo||pending.assigned;if(!assignedTo)unassignedWaiting++;const assignedStart=lead?.assignedAtMs||pending.at;waitingThreads.push({leadId:key,assignedTo,waitingSince:pending.at,businessMinutes:officeMinutes(Math.max(pending.at,assignedStart),now,schedule)});}}
+ for(const sale of sales){if(sale.status!=='approved'||sale.confirmedAtMs<since||sale.confirmedAtMs>now)continue;const r=rows.get(sale.employeeUid);if(!r)continue;r.salesCount++;r.revenuePiastres+=sale.amountPiastres;if(!customerSets.has(r.uid))customerSets.set(r.uid,new Set());customerSets.get(r.uid).add(sale.leadId);}
+ for(const r of rows.values()){r.paidCustomers=customerSets.get(r.uid)?.size||0;r.acquiredCustomers=leads.filter(l=>l.firstPaidEmployeeUid===r.uid&&l.firstPaidAtMs>=since&&l.firstPaidAtMs<=now).length;r.averageResponseMinutes=r.responseMinutes.length?r.responseMinutes.reduce((a,b)=>a+b,0)/r.responseMinutes.length:null;r.measuredResponseCount=r.responseMinutes.length;r.rating=r.measuredResponseCount>=5?Math.round(100*r.responseMinutes.filter(n=>n<=15).length/r.measuredResponseCount):null;delete r.responseMinutes;}
+ return {employees:[...rows.values()],waiting,unassignedWaiting,waitingThreads,automaticReplies,unmeasuredHuman,pendingReceipts:receipts.filter(r=>r.status==='pending').length,companyTotals:{salesCount:sales.filter(s=>s.status==='approved'&&s.confirmedAtMs>=since&&s.confirmedAtMs<=now).length,revenuePiastres:sales.filter(s=>s.status==='approved'&&s.confirmedAtMs>=since&&s.confirmedAtMs<=now).reduce((n,s)=>n+s.amountPiastres,0)},grading:{label:'نسبة الردود البشرية خلال ١٥ دقيقة عمل',minimumSamples:5,notAnOverallEmployeeRating:true},limitations:['الحضور نشاط داخل Bright فقط؛ لا يثبت العمل أو الغياب خارج البرنامج.','ردود نافذة WhatsApp Web أو الهاتف غير الملتقطة لا تدخل سرعة الرد.','الرد الآلي لا يُحتسب ردًا بشريًا.','نسبة العملاء تعني عملاء دفعهم مؤكد بإسناد إداري، وليست تخمينًا من الكلام.']};
+}
+async function captureInbound({db,root,inboxId,message,admin,now=Date.now()}){
+ const id=leadKey(message),leadRef=root.collection('performanceLeads').doc(id),inbox=root.collection('whatsappInbox').doc(inboxId),media=imageMeta(message.media),receipt=root.collection('performanceReceipts').doc(inboxId);
+ return db.runTransaction(async tx=>{const [lead,record,oldReceipt]=await Promise.all([tx.get(leadRef),tx.get(inbox),media?tx.get(receipt):Promise.resolve({exists:false})]);if(!record.exists)return;const old=lead.data()||{};if(!lead.exists)tx.create(leadRef,{from:message.from,source:message.source||'meta',assignedTo:null,sourceEmployeeUid:null,sourceConfirmed:false,customerName:'',createdAt:admin.firestore.FieldValue.serverTimestamp(),createdAtMs:now,updatedAtMs:now});if(!record.data().performanceCaptured){tx.update(inbox,{leadId:id,trackingAssigneeUid:old.assignedTo||null,performanceCaptured:true});tx.set(leadRef,{updatedAtMs:now,hints:conversationHints(message.text)},{merge:true});}if(media&&!oldReceipt.exists)tx.create(receipt,{leadId:id,messageId:inboxId,media,status:'pending',classification:'image_requires_review',createdAt:admin.firestore.FieldValue.serverTimestamp(),createdAtMs:now});return {leadId:id};});
+}
+function makePerformance({db,admin}){
+ const stamp=()=>admin.firestore.FieldValue.serverTimestamp();
+ async function access(root,user,tx){const doc=root.collection('members').doc(user.uid),snap=tx?await tx.get(doc):await doc.get();if(snap.data()?.active!==true)fail('الحساب لا يملك صلاحية في هذه الشركة',403);return snap.data();}
+ async function route({action,root,user,body={},days=30}){
+  const actor=await access(root,user);const now=Date.now();
+  if(action==='heartbeat'){if(!['available','busy','away','off_shift'].includes(body.availability))fail('حالة العمل غير صحيحة');await root.collection('staffPresence').doc(user.uid).set({uid:user.uid,availability:body.availability,lastSeenMs:now,updatedAt:stamp()});return {ok:true,serverNowMs:now};}
+  if(!manager(actor))fail('هذه الشاشة متاحة لإدارة الشركة فقط',403);
+  if(action==='assign'){
+   if(!/^[a-f0-9]{64}$/.test(body.leadId||''))fail('اختر عميلًا من القائمة');
+   const ref=root.collection('performanceLeads').doc(body.leadId),uid=String(body.employeeUid||'');if(!/^[-_a-zA-Z0-9]{6,128}$/.test(uid))fail('اختر موظفًا صحيحًا');
+   return db.runTransaction(async tx=>{const [a,employee,lead]=await Promise.all([access(root,user,tx),tx.get(root.collection('members').doc(uid)),tx.get(ref)]);if(!manager(a)||!employee.exists||employee.data().active!==true)fail('الموظف أو صلاحية الإدارة غير متاحة',403);if(!lead.exists)fail('العميل غير موجود',404);const update={assignedTo:uid,assignedAtMs:lead.data().assignedTo===uid?(lead.data().assignedAtMs||now):now,updatedAtMs:now,customerName:String(body.customerName||lead.data().customerName||'').trim().slice(0,120)};if(typeof body.pauseAutomation==='boolean')update.pauseAutomation=body.pauseAutomation;if(body.confirmSource===true){if(lead.data().firstPaidAtMs&&lead.data().sourceEmployeeUid!==uid)fail('مصدر العميل مرتبط بمبيعة مؤكدة؛ لا يمكن نقله لموظف آخر',409);update.sourceEmployeeUid=uid;update.sourceConfirmed=true;}tx.update(ref,update);tx.create(root.collection('performanceAudit').doc(),{action:'lead.assigned',actor:user.uid,leadId:ref.id,employeeUid:uid,sourceConfirmed:body.confirmSource===true,createdAt:stamp()});return {ok:true};});
+  }
+  if(action==='receipt-decision'){
+   if(!/^[a-f0-9]{64}$/.test(body.receiptId||'')||!['approve','reject'].includes(body.decision))fail('طلب مراجعة غير صحيح');
+   const ref=root.collection('performanceReceipts').doc(body.receiptId),sale=root.collection('performanceSales').doc(body.receiptId);
+   const reference=String(body.reference||'').normalize('NFKC').trim().toUpperCase();if(body.decision==='approve'&&(!Number.isSafeInteger(body.amountPiastres)||body.amountPiastres<1||body.amountPiastres>1000000000||!/^[A-Z0-9][A-Z0-9 _/-]{3,99}$/.test(reference)||body.bankConfirmed!==true))fail('اعتماد المبلغ والمرجع وتأكيد وصول التحويل مطلوب');
+   return db.runTransaction(async tx=>{const [a,receipt,existing]=await Promise.all([access(root,user,tx),tx.get(ref),tx.get(sale)]);if(!manager(a))fail('الإدارة فقط',403);if(!receipt.exists)fail('الصورة غير موجودة',404);if(receipt.data().status!=='pending'){if(existing.exists&&body.decision==='approve')return {ok:true,alreadyRecorded:true};fail('تمت مراجعة الصورة بالفعل',409);}
+    if(body.decision==='reject'){tx.update(ref,{status:'rejected',reviewedBy:user.uid,reviewedAtMs:now,reason:String(body.reason||'ليست عملية دفع مؤكدة').slice(0,300)});tx.create(root.collection('performanceAudit').doc(),{action:'receipt.rejected',actor:user.uid,receiptId:ref.id,createdAt:stamp()});return {ok:true};}
+    const leadRef=root.collection('performanceLeads').doc(receipt.data().leadId),lead=await tx.get(leadRef);const employeeUid=lead.data()?.sourceEmployeeUid;if(!employeeUid||lead.data().sourceConfirmed!==true)fail('أكد أولًا الموظف الذي جلب العميل؛ لا يتم تخمينه من المحادثة',409);
+    const employee=await tx.get(root.collection('members').doc(employeeUid));if(!employee.exists)fail('الموظف غير موجود',409);
+    const paymentRef=root.collection('performancePaymentKeys').doc(hash('EGP|'+reference.replace(/[ _/-]/g,''))),imageRef=receipt.data().media?.sha256?root.collection('performancePaymentKeys').doc(hash('image|'+receipt.data().media.sha256)):null;
+    const [payment,image]=await Promise.all([tx.get(paymentRef),imageRef?tx.get(imageRef):Promise.resolve({exists:false})]);if(payment.exists||image.exists)fail('نفس مرجع التحويل أو الصورة محسوب بالفعل',409);
+    tx.create(paymentRef,{saleId:sale.id});if(imageRef)tx.create(imageRef,{saleId:sale.id});tx.create(sale,{leadId:leadRef.id,employeeUid,receiptId:ref.id,amountPiastres:body.amountPiastres,currency:'EGP',status:'approved',confirmedBy:user.uid,confirmedAtMs:now,createdAt:stamp(),reference});tx.update(ref,{status:'approved',reviewedBy:user.uid,reviewedAtMs:now});if(!lead.data().firstPaidAtMs)tx.update(leadRef,{firstPaidAtMs:now,firstPaidEmployeeUid:employeeUid,firstPaidSaleId:sale.id});tx.create(root.collection('performanceAudit').doc(),{action:'sale.confirmed',actor:user.uid,saleId:sale.id,employeeUid,createdAt:stamp()});return {ok:true};});
+  }
+  if(action==='reverse-sale'){
+   if(!/^[a-f0-9]{64}$/.test(body.saleId||'')||typeof body.reason!=='string'||body.reason.trim().length<5)fail('اختر عملية واكتب سبب التصحيح');const ref=root.collection('performanceSales').doc(body.saleId);return db.runTransaction(async tx=>{const [a,sale]=await Promise.all([access(root,user,tx),tx.get(ref)]);if(!manager(a))fail('الإدارة فقط',403);if(!sale.exists)fail('العملية غير موجودة',404);if(sale.data().status==='reversed')return {ok:true};const leadRef=root.collection('performanceLeads').doc(sale.data().leadId),related=await tx.get(root.collection('performanceSales').where('leadId','==',sale.data().leadId).limit(501));if(related.size>500)fail('العميل لديه عمليات كثيرة وتحتاج مراجعة خاصة قبل التصحيح',413);const remaining=related.docs.filter(d=>d.id!==ref.id&&d.data().status==='approved').map(d=>({...d.data(),id:d.id})).sort((a,b)=>a.confirmedAtMs-b.confirmedAtMs);tx.update(leadRef,{firstPaidAtMs:remaining[0]?.confirmedAtMs||null,firstPaidEmployeeUid:remaining[0]?.employeeUid||null,firstPaidSaleId:remaining[0]?.id||null});tx.update(ref,{status:'reversed',reversedBy:user.uid,reversedAtMs:now,reversalReason:body.reason.trim().slice(0,300)});tx.create(root.collection('performanceAudit').doc(),{action:'sale.reversed',actor:user.uid,saleId:ref.id,createdAt:stamp()});return {ok:true};});
+  }
+  if(action==='settings'){const s=body.schedule;if(!s||!Number.isInteger(s.startMinute)||!Number.isInteger(s.endMinute)||s.startMinute<0||s.endMinute>1440||s.startMinute>=s.endMinute||!Array.isArray(s.weekdays)||!s.weekdays.length||s.weekdays.some(d=>!Number.isInteger(d)||d<0||d>6))fail('مواعيد الدوام غير صحيحة');await db.runTransaction(async tx=>{if(!manager(await access(root,user,tx)))fail('الإدارة فقط',403);tx.update(root,{performanceSchedule:{timezone:'Africa/Cairo',startMinute:s.startMinute,endMinute:s.endMinute,weekdays:[...new Set(s.weekdays)]}});tx.create(root.collection('performanceAudit').doc(),{action:'schedule.updated',actor:user.uid,createdAt:stamp()});});return {ok:true};}
+  if(action!=='report')fail('غير موجود',404);
+  if(![7,30].includes(days))fail('اختر فترة ٧ أو ٣٠ يومًا');const since=now-days*86400000;
+  const recent=async name=>{const snap=await root.collection(name).where('createdAt','>=',new Date(since)).limit(5001).get();if(snap.size>5000)fail('التقرير كبير؛ اختر فترة أقصر',413);return snap.docs.map(d=>({...d.data(),id:d.id}));};
+  const all=async(name,max)=>{const snap=await root.collection(name).limit(max+1).get();if(snap.size>max)fail('القائمة كبيرة وتحتاج تقسيمًا قبل عرض تقرير كامل',413);return snap.docs.map(d=>({...d.data(),id:d.id}));};
+  const [members,leads,messages,outbox,sales,receipts,presence]=await Promise.all([all('members',100),all('performanceLeads',5000),recent('whatsappInbox'),recent('whatsappOutbox'),recent('performanceSales'),recent('performanceReceipts'),all('staffPresence',100)]);
+  const auditSnapshot=await root.collection('performanceAudit').orderBy('createdAt','desc').limit(100).get();const activity=auditSnapshot.docs.map(d=>({...d.data(),id:d.id}));const humanActivity=outbox.filter(o=>o.status==='sent'&&o.actorKind==='human').map(o=>({employeeUid:o.createdBy,sentAtMs:o.sentAtMs,reply:String(o.reply||'').slice(0,500),messageId:o.fromMessageId})).sort((a,b)=>b.sentAtMs-a.sentAtMs).slice(0,100);
+  const schedule=(await root.get()).data()?.performanceSchedule||{timezone:'Africa/Cairo',startMinute:540,endMinute:1020,weekdays:[0,1,2,3,4]};
+  return {...buildReport({members:members.map(m=>({...m,uid:m.id})),leads,messages,outbox,sales,receipts,presence,now,since,schedule}),leads,receipts,sales,activity,humanActivity,serverNowMs:now,since,schedule,scheduleLabel:'الوقت محسوب داخل الدوام المحدد بتوقيت القاهرة؛ الافتراضي الأحد–الخميس ٩ ص–٥ م ويمكن تعديله',coverage:{beginsWithTrackedEvents:true,externalWhatsAppRepliesExcluded:true,receiptImagesRequireManualReview:true}};
+ }
+ return {route};
+}
+module.exports={makePerformance,captureInbound,buildReport,officeMinutes,presenceState,leadKey,imageMeta,conversationHints,manager};

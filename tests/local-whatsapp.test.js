@@ -3,9 +3,9 @@ const {test}=require('node:test'),assert=require('node:assert/strict');
 const {localWhatsApp}=require('../cloud/local-whatsapp');const {memoryStore}=require('./memory-store');
 const {inbound,encryptedAuth}=require('../desktop/local-whatsapp');
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
-test('local sync ignores history, groups, own messages and non-text payloads',()=>{
+test('local sync ignores history, groups and own messages; images become review-only events',()=>{
  const now=Date.now(),m={key:{id:'ABC',remoteJid:'201000000000@s.whatsapp.net'},messageTimestamp:Math.floor(now/1000),message:{conversation:'hello'}};
- assert.equal(inbound(m,now).text,'hello');assert.equal(inbound({...m,key:{...m.key,fromMe:true}},now),null);assert.equal(inbound({...m,key:{...m.key,remoteJid:'12345@g.us'}},now),null);assert.equal(inbound({...m,messageTimestamp:Math.floor(now/1000)-10},now),null);assert.equal(inbound({...m,message:{imageMessage:{}}},now),null);
+ assert.equal(inbound(m,now).text,'hello');assert.equal(inbound({...m,key:{...m.key,fromMe:true}},now),null);assert.equal(inbound({...m,key:{...m.key,remoteJid:'12345@g.us'}},now),null);assert.equal(inbound({...m,messageTimestamp:Math.floor(now/1000)-10},now),null);const image=inbound({...m,message:{imageMessage:{}}},now);assert.equal(image.media.kind,'image');assert.equal(image.text,'[صورة مرفقة]');assert.equal(inbound({...m,message:{videoMessage:{}}},now),null);
 });
 test('native pending queue survives encrypted restart and removes only acknowledged messages',()=>{
  const folder=fs.mkdtempSync(path.join(os.tmpdir(),'bright-sync-')),file=path.join(folder,'session.bin');
