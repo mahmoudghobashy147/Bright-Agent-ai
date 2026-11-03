@@ -20,6 +20,8 @@ test('deployed server contract: real Auth tokens, tenant lifecycle, orders and d
  assert.equal((await fetch(base+'/console/')).status,200);
  assert.equal((await api('/api/admin/companies',ownerToken)).status,403);
  const created=await api('/api/admin/companies',adminToken,{name:'شركة اختبار العزل',ownerUid:'company-owner',plan:'starter'});assert.equal(created.status,201);const tenantId=created.data.tenantId;
+ await auth.createUser({uid:'staff-performance',email:'staff@bright-test.invalid',password:'EmulatorOnly-Test-123!'});const staffToken=await token('staff@bright-test.invalid');assert.equal((await api('/api/company/members',ownerToken,{tenantId,uid:'staff-performance',role:'staff',active:true,name:'موظف اختبار',jobTitle:'مبيعات'})).status,200);assert.equal((await api('/api/company/performance?tenantId='+tenantId,ownerToken)).status,200);assert.equal((await api('/api/company/performance?tenantId='+tenantId,staffToken)).status,403);assert.equal((await api('/api/company/performance/heartbeat',staffToken,{tenantId,availability:'busy',uid:'company-owner'})).status,200);assert.equal((await api('/api/company/performance/receipt-decision',staffToken,{tenantId,receiptId:'a'.repeat(64),decision:'approve'})).status,403);
+
  assert.equal((await api('/api/me/companies',ownerToken)).data.companies[0].id,tenantId);
  assert.equal((await api('/api/admin/subscription',adminToken,{tenantId,plan:'starter',status:'trial',renewalDate:'2099-01-01'})).status,200);
  assert.equal((await api('/api/company/agent',ownerToken,{tenantId,services:'خدمة اختبار فعلية في المحاكي',savedReplies:'مواعيد العمل | من 9 إلى 5'})).status,200);
