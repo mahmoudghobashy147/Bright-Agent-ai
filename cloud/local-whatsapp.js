@@ -31,7 +31,7 @@ async function localWhatsApp({action,body,user,tenant,db,admin,plans}){
    if(bound.data()?.accountHash!==accountHash||bound.data()?.sessionId!==sessionId||bound.data()?.updatedBy!==user.uid)fail('local session changed; reconnect',409);
    if(!message.exists||message.data().source!=='local_qr'||message.data().from!==body.from||!proposal.exists)fail('message not found',404);
    const assignment=message.data()?.leadId?await tx.get(root.collection('performanceLeads').doc(message.data().leadId)):null;
-   if(action!=='reply-result'&&assignment?.data()?.assignedTo)return {allowed:false,status:'assigned_to_employee'};
+   if(action!=='reply-result'&&assignment?.data()?.pauseAutomation===true)return {allowed:false,status:'assigned_to_employee'};
    if(action==='reply-result'){
     if(!delivery.exists||delivery.data().sessionId!==sessionId||delivery.data().claimId!==body.claimId)fail('invalid delivery claim',409);
     if(!['sent','unknown'].includes(body.status))fail('invalid delivery status');
