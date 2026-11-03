@@ -12,6 +12,7 @@ const {requestId,retryAdvice}=require('./outbound-guard');
 const {createSavedReplyAgent,parseRules}=require('./saved-replies');
 const {orderIntent}=require('./order-intent');
 const {localWhatsApp}=require('./local-whatsapp');
+const {makePerformance,captureInbound}=require('./team-performance');
 const {startCheckout}=require('./subscription-engine');
 const {normalizeAutomation,decideAutomation}=require('./automation-policy');
 const {buildReviewTask,createReviewTask}=require('./inbox-workflow');
@@ -39,13 +40,14 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
  const throttle=rateLimiter();
  const isSuperAdmin=user=>superAdmin(user,superAdminUids);
  const tenants=db.collection('brightAiTenants');
+ const performance=makePerformance({db,admin});
  async function userFromBearer(req){const m=/^Bearer (\S+)$/.exec(req.headers.authorization||'');if(!m)throw Object.assign(Error('sign in required'),{status:401});let decoded;try{decoded=await auth.verifyIdToken(m[1],true);}catch{throw Object.assign(Error('invalid or expired session'),{status:401});}return decoded;}
  async function companyForUser(uid,tenantId){if(!isId(tenantId))throw Object.assign(Error('invalid tenant'),{status:400});const [member,tenant]=await Promise.all([tenants.doc(tenantId).collection('members').doc(uid).get(),tenants.doc(tenantId).get()]);if(!tenant.exists||!member.exists||member.data().active!==true)throw Object.assign(Error('access denied'),{status:403});return tenant.data();}
  return async function handler(req,res){try{
   const url=new URL(req.url,'http://localhost'),p=url.pathname;
   if(req.method==='GET'&&p==='/'){res.writeHead(302,{location:'/console/','cache-control':'no-store'});return res.end();}
   if(req.method==='GET'&&p==='/health')return send(res,200,{ok:true,version:26,storage:'firestore',mode:'cloud'});
-  if(req.method==='GET'&&['/console/','/console/index.html','/console/app.js','/console/firebase-config.js','/console/eldalel-preset.js'].includes(p)){
+  if(req.method==='GET'&&['/console/','/console/index.html','/console/app.js','/console/firebase-config.js','/console/eldalel-preset.js','/console/team-performance.js'].includes(p)){
     const name=p==='/console/'?'index.html':path.basename(p);
     const file=path.join(__dirname,'console',name);
     if(!fs.existsSync(file))return send(res,404,{error:'console config missing'});
@@ -54,10 +56,13 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
   if(!allowedOrigin(req.headers.origin,allowedOrigins))return send(res,403,{error:'origin not permitted'});
   if(req.headers.origin){res.setHeader('Access-Control-Allow-Origin',req.headers.origin);res.setHeader('Vary','Origin');}
   if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':req.headers.origin||'','Access-Control-Allow-Headers':'Authorization, Content-Type','Access-Control-Allow-Methods':'GET, POST, OPTIONS'});return res.end();}
-  if(req.method==='POST'&&['/api/company/local-whatsapp/bind','/api/company/local-whatsapp/inbox','/api/company/local-whatsapp/reply-claim','/api/company/local-whatsapp/reply-result'].includes(p)){
+  if(req.method==='POST'&&['/api/company/local-whatsapp/bind','/api/company/local-whatsapp/inbox','/api/company/local-whatsapp/reply-claim','/api/company/local-whatsapp/reply-result','/api/company/local-whatsapp/human-claim','/api/company/local-whatsapp/human-result'].includes(p)){
     const user=await userFromBearer(req),body=await parseBody(req),tenant=await companyForUser(user.uid,body.tenantId);
     return send(res,200,await localWhatsApp({action:p.split('/').at(-1),body,user,tenant,db,admin,plans:PLANS}));
   }
+  if(p==='/api/company/performance'&&req.method==='GET'){const user=await userFromBearer(req),tenantId=url.searchParams.get('tenantId');await companyForUser(user.uid,tenantId);return send(res,200,await performance.route({action:'report',root:tenants.doc(tenantId),user,days:Number(url.searchParams.get('days')||30)}));}
+  if(req.method==='POST'&&/^\/api\/company\/performance\/(heartbeat|assign|receipt-decision|reverse-sale|settings)$/.test(p)){const user=await userFromBearer(req),b=await parseBody(req);await companyForUser(user.uid,b.tenantId);return send(res,200,await performance.route({action:p.split('/').at(-1),root:tenants.doc(b.tenantId),user,body:b}));}
+  if(req.method==='POST'&&p==='/api/company/whatsapp/qr-human-reply'){const user=await userFromBearer(req),b=await parseBody(req);const tenant=await companyForUser(user.uid,b.tenantId);if(!active(tenant))return send(res,403,{error:'subscription inactive'});return send(res,200,await require('./human-qr').queueHumanReply({db,root:tenants.doc(b.tenantId),user,messageId:b.messageId,reply:b.reply,admin}));}
   if(req.method==='GET'&&p==='/api/me/companies'){
     const user=await userFromBearer(req);
     const snap=await tenants.where('memberUids','array-contains',user.uid).limit(100).get();
@@ -71,7 +76,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     const member=await tenants.doc(tenantId).collection('members').doc(user.uid).get();
     if(!['owner','admin'].includes(member.data()?.role))return send(res,403,{error:'manager required'});
     const members=await tenants.doc(tenantId).collection('members').limit(100).get();
-    return send(res,200,{members:members.docs.map(d=>({uid:d.id,role:d.data().role,active:d.data().active}))});
+    return send(res,200,{members:members.docs.map(d=>({uid:d.id,role:d.data().role,active:d.data().active,name:txt(d.data().name,120),jobTitle:txt(d.data().jobTitle,120)}))});
   }
   if(req.method==='POST'&&p==='/api/company/members'){
     const user=await userFromBearer(req),b=await parseBody(req),tenantId=txt(b.tenantId,100);
@@ -84,7 +89,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
       const [actor,target,company]=await Promise.all([tx.get(root.collection('members').doc(user.uid)),tx.get(root.collection('members').doc(uid)),tx.get(root)]);
       if(actor.data()?.role!=='owner'||actor.data()?.active!==true||target.data()?.role==='owner')throw Object.assign(Error('only owner can manage non-owner members'),{status:403});
       const ids=new Set(company.data().memberUids||[]);if(b.active)ids.add(uid);else ids.delete(uid);
-      tx.set(root.collection('members').doc(uid),{role,active:b.active},{merge:true});
+      tx.set(root.collection('members').doc(uid),{role,active:b.active,...(typeof b.name==='string'?{name:txt(b.name,120)}:{}),...(typeof b.jobTitle==='string'?{jobTitle:txt(b.jobTitle,120)}:{})},{merge:true});
       tx.update(root,{memberUids:[...ids]});
       tx.create(root.collection('audit').doc(),{action:'member.updated',actor:user.uid,target:uid,role,active:b.active,createdAt:admin.firestore.FieldValue.serverTimestamp()});
     });
@@ -384,7 +389,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     // Keep such events 'unknown', never blindly resend them.
     const outboundRef=tenants.doc(tenantId).collection('whatsappOutbox').doc(requestId(messageId,reply));
     try{
-      await outboundRef.create({fromMessageId:messageId,to:record.from,reply,createdBy:user.uid,status:'pending',createdAt:admin.firestore.FieldValue.serverTimestamp()});
+      await outboundRef.create({fromMessageId:messageId,to:record.from,reply,createdBy:user.uid,actorKind:'human',status:'pending',createdAt:admin.firestore.FieldValue.serverTimestamp()});
     }catch(e){
       if(e.code!==6&&e.code!=='already-exists')throw e;
       const prior=await outboundRef.get();
@@ -392,7 +397,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     }
     try{
       const result=await sendWhatsAppText({phoneNumberId:record.phoneNumberId,to:record.from,text:reply,token:process.env.WA_ACCESS_TOKEN,version:process.env.WA_GRAPH_VERSION});
-      await outboundRef.update({status:'sent',metaMessageId:result.messageId,updatedAt:admin.firestore.FieldValue.serverTimestamp()});
+      await outboundRef.update({status:'sent',sentAtMs:Date.now(),metaMessageId:result.messageId,updatedAt:admin.firestore.FieldValue.serverTimestamp()});
       return send(res,200,{ok:true,outboundId:outboundRef.id});
     }catch(e){
       await outboundRef.update({status:'unknown',error:txt(e.message,250),updatedAt:admin.firestore.FieldValue.serverTimestamp()});
@@ -507,16 +512,17 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
       if(!tenantSnap.exists){unknown++;continue;}
       const docId=crypto.createHash('sha256').update(item.phoneNumberId+':'+item.id).digest('hex');
       const msgRef=tenants.doc(tenantId).collection('whatsappInbox').doc(docId);
-      const root=tenants.doc(tenantId),task=buildReviewTask({inboundId:docId,tenant:tenantSnap.data()}),candidate=orderIntent(item.text);
+      const root=tenants.doc(tenantId),task=item.media?null:buildReviewTask({inboundId:docId,tenant:tenantSnap.data()}),candidate=orderIntent(item.text);
       await db.runTransaction(async tx=>{
         const existing=await tx.get(msgRef);
         if(existing.exists)return;
         // Use Meta's signed customer timestamp, never webhook arrival time.
         // Late delivery must not reopen the customer service window.
-        tx.create(msgRef,{metaId:item.id,from:item.from,text:item.text,phoneNumberId:item.phoneNumberId,status:'new',receivedAtMillis:item.sentAtMillis,createdAt:admin.firestore.FieldValue.serverTimestamp()});
+        tx.create(msgRef,{metaId:item.id,from:item.from,text:item.text,phoneNumberId:item.phoneNumberId,...(item.media?{media:item.media}:{}),status:'new',receivedAtMillis:item.sentAtMillis,createdAt:admin.firestore.FieldValue.serverTimestamp()});
         if(task)tx.create(root.collection('automationTasks').doc(task.id),task.record);
         if(candidate)tx.create(root.collection('orderLeads').doc('wa_'+docId),{...candidate,contact:txt(item.from,120),sourceMessageId:docId,createdAt:admin.firestore.FieldValue.serverTimestamp()});
       });
+      await captureInbound({db,root,inboxId:docId,message:{...item,source:'meta'},admin});
       saved++;
 
     }
