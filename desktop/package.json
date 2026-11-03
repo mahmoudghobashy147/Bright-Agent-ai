@@ -1,12 +1,12 @@
 {
   "name": "bright-ai-desktop",
-  "version": "26.3.0",
+  "version": "26.4.0",
   "private": true,
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dist:win": "electron-builder --win nsis",
-    "test": "node url-policy.test.js && node config.test.js && node whatsapp-window.test.js"
+    "test": "node url-policy.test.js && node config.test.js && node whatsapp-window.test.js && node whatsapp-interface.test.js"
   },
   "devDependencies": {
     "electron": "45.2.1",
@@ -25,7 +25,11 @@
       "setup.html",
       "setup.js",
       "whatsapp-window.js",
-      "local-whatsapp.js"
+      "local-whatsapp.js",
+      "whatsapp-interface.js",
+      "whatsapp-interface.html",
+      "whatsapp-interface-preload.js",
+      "whatsapp-interface-ui.js"
     ],
     "win": {
       "target": [
