@@ -12,6 +12,7 @@ const {requestId,retryAdvice}=require('./outbound-guard');
 const {createSavedReplyAgent,parseRules}=require('./saved-replies');
 const {orderIntent}=require('./order-intent');
 const {localWhatsApp}=require('./local-whatsapp');
+const {teamPerformance}=require('./team-performance');
 const {startCheckout}=require('./subscription-engine');
 const {normalizeAutomation,decideAutomation}=require('./automation-policy');
 const {buildReviewTask,createReviewTask}=require('./inbox-workflow');
@@ -45,7 +46,7 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
   const url=new URL(req.url,'http://localhost'),p=url.pathname;
   if(req.method==='GET'&&p==='/'){res.writeHead(302,{location:'/console/','cache-control':'no-store'});return res.end();}
   if(req.method==='GET'&&p==='/health')return send(res,200,{ok:true,version:26,storage:'firestore',mode:'cloud'});
-  if(req.method==='GET'&&['/console/','/console/index.html','/console/app.js','/console/firebase-config.js','/console/eldalel-preset.js'].includes(p)){
+  if(req.method==='GET'&&['/console/','/console/index.html','/console/app.js','/console/firebase-config.js','/console/eldalel-preset.js','/console/team-performance.js'].includes(p)){
     const name=p==='/console/'?'index.html':path.basename(p);
     const file=path.join(__dirname,'console',name);
     if(!fs.existsSync(file))return send(res,404,{error:'console config missing'});
@@ -160,6 +161,14 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     return send(res,200,{tenant:{name:tenant.name,plan:tenant.plan,subscriptionStatus:tenant.subscriptionStatus,renewalDate:tenant.renewalDate||null}});
   }
   // Tenant-scoped operational overview. Uses bounded reads; no cross-tenant aggregation.
+  if(p.startsWith('/api/company/team-performance/')&&['GET','POST'].includes(req.method)){
+    const user=await userFromBearer(req);
+    const action=p.split('/').at(-1);
+    const body=req.method==='POST'?await parseBody(req,action==='submit'?410000:10000):{};
+    const tenantId=req.method==='POST'?body.tenantId:url.searchParams.get('tenantId');
+    await companyForUser(user.uid,tenantId);
+    return send(res,200,await teamPerformance({action,method:req.method,root:tenants.doc(tenantId),db,user,body,query:url.searchParams}));
+  }
   if(req.method==='GET'&&p==='/api/company/overview'){
     const user=await userFromBearer(req),tenantId=url.searchParams.get('tenantId');
     const tenant=await companyForUser(user.uid,tenantId);
@@ -441,13 +450,18 @@ function makeService({admin,db,auth,allowedOrigins=new Set(),superAdminUids=new 
     const data=inbox.data();
     const details=txt(b.details||data.text,2000),customerName=txt(b.customerName||'عميل واتساب',120);
     if(details.length<3||customerName.length<2)return send(res,400,{error:'missing order details'});
+    const replies=await tenantRef.collection('whatsappOutbox').where('fromMessageId','==',messageId).limit(2).get();
+    const responders=new Set(replies.docs.filter(doc=>doc.data().status==='sent').map(doc=>doc.data().createdBy));
+    const responder=replies.size<2&&responders.size===1?[...responders][0]:null;
     const orderRef=tenantRef.collection('orders').doc('wa_'+messageId);
     let created=false;
     await db.runTransaction(async tx=>{
       const existing=await tx.get(orderRef);
       if(!existing.exists){
+        const responderMember=responder?await tx.get(tenantRef.collection('members').doc(responder)):null;
+        const assignedTo=responderMember?.data()?.active===true?responder:null;
         tx.create(orderRef,{customerName,contact:txt(data.from,120),details,source:'whatsapp',sourceMessageId:messageId,
-          status:'new',assignedTo:null,createdBy:user.uid,createdAt:admin.firestore.FieldValue.serverTimestamp()});
+          status:'new',assignedTo,createdBy:user.uid,createdAt:admin.firestore.FieldValue.serverTimestamp()});
         created=true;
       }
       tx.update(inboxRef,{status:'converted',orderId:orderRef.id,updatedAt:admin.firestore.FieldValue.serverTimestamp()});

@@ -1,3 +1,4 @@
+import {setupTeamPerformance} from './team-performance.js';
 let replyPreviewContext,replyPreviewGeneration=0;
 function resetReplyPreview(){replyPreviewContext=undefined;replyPreviewGeneration++;}
 import {eldalelPreset} from './eldalel-preset.js';
@@ -20,7 +21,7 @@ onAuthStateChanged(auth,async u=>{
  for(const id of ['metrics','conversations','orders','members','drafts','whatsappInbox','reviewTasks','orderLeads','adminCompanies','billingInfo','invoices','checkoutLink'])el(id).replaceChildren();
  el('tenantId').replaceChildren(new Option('اختر شركتك',''));
  if(!u){status('');return;}
- try{const data=await api('/api/me/companies');if(auth.currentUser?.uid!==u.uid)return;show('adminPanel',data.superAdmin);for(const c of data.companies)el('tenantId').append(new Option(c.name+' — '+c.role,c.id));if(data.companies.length===1){el('tenantId').value=data.companies[0].id;el('load').click();}if(data.superAdmin)await listCompanies();}catch(e){status('تعذر تحميل الشركات: '+e.message,true);}
+ try{const data=await api('/api/me/companies');if(auth.currentUser?.uid!==u.uid)return;show('adminPanel',data.superAdmin);for(const c of data.companies)el('tenantId').append(new Option(c.name+' — '+c.role,c.id));if(data.companies.length===1){el('tenantId').value=data.companies[0].id;teamPerformance.reset();el('load').click();}if(data.superAdmin)await listCompanies();}catch(e){status('تعذر تحميل الشركات: '+e.message,true);}
 });
 el('tenantId').addEventListener('change',()=>{resetReplyPreview();stopLocalSync();el('savedReplyResult').textContent='';for(const id of ['metrics','conversations','orders','members','drafts','whatsappInbox','reviewTasks','orderLeads','billingInfo','invoices','checkoutLink'])el(id).replaceChildren();for(const key of ['businessDescription','services','guidelines','greeting','savedReplies'])el(key).value='';renderReplyRows();el('load').click();});
 el('load').addEventListener('click',async()=>{const id=el('tenantId').value.trim();if(!/^[a-zA-Z0-9_-]{6,100}$/.test(id)){status('معرّف الشركة غير صالح',true);return}el('load').disabled=true;try{const q=encodeURIComponent(id);const [company,history]=await Promise.all([api(`/api/company?tenantId=${q}`),api(`/api/company/conversations?tenantId=${q}`)]);const m=el('metrics');m.replaceChildren(metric('الشركة',company.tenant.name),metric('الباقة',company.tenant.plan),metric('حالة الاشتراك',company.tenant.subscriptionStatus),metric('الاستخدام هذا الشهر',history.usage.reserved));const c=el('conversations');c.replaceChildren();for(const record of history.conversations){const div=document.createElement('div');div.className='conversation';const question=document.createElement('p'),answer=document.createElement('p');question.textContent='العميل: '+record.message;answer.textContent='Bright Ai: '+record.reply;div.append(question,answer);c.append(div)}if(!history.conversations.length)c.textContent='لا توجد محادثات حاليًا';const a=await api(`/api/company/agent?tenantId=${q}`);el('assistantProfile').value=a.settings.assistantProfile||'generic';for(const key of ['businessDescription','services','guidelines','greeting','savedReplies'])el(key).value=a.settings[key]||'';renderReplyRows();try{const a=await api(`/api/company/automation?tenantId=${q}`);el('automationMode').value=a.settings.mode}catch{}status('تم تحميل البيانات')}catch(e){el('metrics').replaceChildren();el('conversations').replaceChildren();status('تعذر عرض الشركة أو لا تملك صلاحية الوصول.',true)}finally{el('load').disabled=false}});
@@ -29,7 +30,7 @@ el('saveAgent').addEventListener('click',async()=>{try{const tenantId=el('tenant
 el('createCompany').addEventListener('click',async()=>{try{const result=await api('/api/admin/companies',{name:el('newName').value,ownerUid:el('ownerUid').value,plan:el('newPlan').value});status('تم إنشاء الشركة معلّقة. معرّف الشركة: '+result.tenantId);await listCompanies()}catch(e){status('تعذّر إنشاء الشركة: '+e.message,true)}});
 async function listCompanies(){const data=await api('/api/admin/companies');const host=el('adminCompanies');host.replaceChildren();for(const c of data.companies){const p=document.createElement('p');p.textContent=`${c.name} — ${c.plan} — ${c.subscriptionStatus} — ${c.id}`;host.append(p)}}
 
-el('loadOrders').addEventListener('click',async()=>{try{const tenantId=el('tenantId').value.trim();const r=await api('/api/company/orders?tenantId='+encodeURIComponent(tenantId));el('orders').replaceChildren();for(const o of r.orders){const row=document.createElement('p');row.textContent=`${o.id}: ${o.customerName||'عميل'} — ${o.details||'طلب'} — ${o.status}`;const sel=document.createElement('select');for(const v of ['new','in_progress','completed','cancelled']){const option=document.createElement('option');option.value=v;option.textContent=v;option.selected=v===o.status;sel.append(option)}sel.addEventListener('change',async()=>{try{await api('/api/company/order-status',{tenantId,orderId:o.id,status:sel.value});status('تم تحديث الطلب')}catch{status('تعذر تحديث الطلب',true)}});row.append(sel);el('orders').append(row)}if(!r.orders.length)el('orders').textContent='لا توجد طلبات'}catch{status('تعذر تحميل الطلبات',true)}});
+el('loadOrders').addEventListener('click',async()=>{try{const tenantId=el('tenantId').value.trim();const r=await api('/api/company/orders?tenantId='+encodeURIComponent(tenantId));el('orders').replaceChildren();for(const o of r.orders){const row=document.createElement('p');row.textContent=`${o.id}: ${o.customerName||'عميل'} — ${o.details||'طلب'} — ${o.status}`;const sel=document.createElement('select');for(const v of ['new','in_progress','completed','cancelled']){const option=document.createElement('option');option.value=v;option.textContent=v;option.selected=v===o.status;sel.append(option)}sel.addEventListener('change',async()=>{try{await api('/api/company/order-status',{tenantId,orderId:o.id,status:sel.value});status('تم تحديث الطلب')}catch{status('تعذر تحديث الطلب',true)}});row.append(sel);teamPerformance.orderControls(row,o,tenantId);el('orders').append(row)}if(!r.orders.length)el('orders').textContent='لا توجد طلبات'}catch{status('تعذر تحميل الطلبات',true)}});
 el('saveSubscription').addEventListener('click',async()=>{try{await api('/api/admin/subscription',{tenantId:el('subTenantId').value.trim(),plan:el('subPlan').value,status:el('subStatus').value,renewalDate:el('subRenewal').value});status('تم تحديث الاشتراك')}catch(e){status('تعذر تحديث الاشتراك: '+e.message,true)}});
 
 el('createOrder').addEventListener('click',async()=>{
@@ -74,7 +75,23 @@ el('loadWhatsapp').addEventListener('click',async()=>{
         try{const result=await api('/api/company/whatsapp/draft',{tenantId,messageId:m.id});status('تم إنشاء مسودة. راجعها قبل الإرسال.');item.append(replyButton(tenantId,m.id,result.reply))}
         catch(e){status('تعذر إنشاء المسودة: '+e.message,true)}finally{draft.disabled=false}
       });
-      if(m.source==='local_qr'){const note=document.createElement('p');note.textContent=m.status==='replied'?'تم إرسال الرد التلقائي عبر جلسة واتساب المحلية.':m.status==='reply_unknown'?'نتيجة الإرسال غير مؤكدة؛ لن يُعاد تلقائيًا لتجنب التكرار.':'مزامنة QR — تابع حالة الرد في المسودات.';item.append(label,note);}else item.append(label,input,manual,draft);host.append(item);
+      if(m.source==='local_qr'){const note=document.createElement('p');note.textContent=m.status==='replied'?'تم إرسال الرد التلقائي عبر جلسة واتساب المحلية.':m.status==='reply_unknown'?'نتيجة الإرسال غير مؤكدة؛ لن يُعاد تلقائيًا لتجنب التكرار.':'مزامنة QR — تابع حالة الرد في المسودات.';item.append(label,note);}else item.append(label,input,manual,draft);
+      const convert=document.createElement('button');
+      convert.type='button';
+      convert.textContent='فتح طلب للعميل';
+      convert.addEventListener('click',async()=>{
+        if(tenantId!==el('tenantId').value)return;
+        convert.disabled=true;
+        try{
+          await api('/api/company/order-from-whatsapp',{tenantId,messageId:m.id});
+          if(tenantId!==el('tenantId').value)return;
+          navigate('orders');
+          el('loadOrders').click();
+        }catch(error){status(error.message,true);}
+        finally{convert.disabled=false;}
+      });
+      item.append(convert);
+      host.append(item);
     }
     if(!r.messages.length)host.textContent='لا توجد رسائل واردة';
   }catch(e){status('تعذر عرض رسائل واتساب: '+e.message,true)}
@@ -166,6 +183,9 @@ el('loadMembers').addEventListener('click',async()=>{try{const data=await api('/
 el('saveMember').addEventListener('click',async()=>{try{await api('/api/company/members',{tenantId:el('tenantId').value,uid:el('memberUid').value.trim(),role:el('memberRole').value,active:el('memberActive').value==='true'});status('تم حفظ صلاحية الموظف');el('loadMembers').click();}catch(e){status(e.message,true);}});
 el('saveChannel').addEventListener('click',async()=>{try{await api('/api/admin/whatsapp-channel',{tenantId:el('channelTenantId').value.trim(),phoneNumberId:el('channelNumberId').value.trim()});status('تم حفظ ربط الرقم. الإرسال يحتاج تفعيلًا منفصلًا.');}catch(e){status(e.message,true);}});
 el('loadInvoices').addEventListener('click',async()=>{try{const data=await api('/api/company/invoices?tenantId='+encodeURIComponent(el('tenantId').value));el('invoices').replaceChildren();for(const i of data.invoices){const row=document.createElement('p');row.textContent=i.id+' — '+i.amountMinor/100+' ج — '+i.status;el('invoices').append(row);}if(!data.invoices.length)el('invoices').textContent='لا توجد فواتير تجريبية';}catch(e){status(e.message,true);}});
+const teamPerformance=setupTeamPerformance({el,api,status,user:()=>auth.currentUser});
+el('tenantId').addEventListener('change',()=>teamPerformance.reset());
+onAuthStateChanged(auth,()=>teamPerformance.reset());
 let checkoutRequestId;
 el('sandboxCheckout').addEventListener('click',async()=>{
  if(!confirm('إنشاء رابط دفع تجريبي فقط؟ لا تدخل بيانات بطاقة حقيقية.'))return;
