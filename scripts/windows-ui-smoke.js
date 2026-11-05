@@ -47,7 +47,16 @@ const {makeService}=require('../cloud/service');const {memoryStore}=require('../
   // Real unauthenticated WhatsApp page: no account pairing, QR capture, or sends.
   const realWindowPromise=electron.waitForEvent('window');await page.locator('#openWhatsAppInterface').click();const realShell=await realWindowPromise;
   await realShell.waitForFunction(()=>document.getElementById('state').textContent.includes('مفتوحة'),{},{timeout:90000});
-  const liveWa=await electron.evaluate(async({webContents})=>{const wc=webContents.getAllWebContents().find(w=>w.getURL()==='https://web.whatsapp.com/');if(!wc)throw Error('WhatsApp view missing');return wc.executeJavaScript(`new Promise(resolve=>{let rounds=0;const check=()=>{const text=document.body?.innerText||'';const unsupported=/WhatsApp works with|update.*(?:Chrome|browser)|browser.*not supported/i.test(text);const login=!!document.querySelector('canvas,div[data-ref]')||/log in to WhatsApp|log in with phone number|link with phone number|scan.*(?:QR|code)|مسح.*(?:رمز|كود)/i.test(text);if(unsupported||login||rounds++>45)resolve({unsupported,login,title:document.title});else setTimeout(check,1000);};check();})`);});
+  const inspectLiveWhatsApp=()=>electron.evaluate(async({webContents})=>{const wc=webContents.getAllWebContents().find(w=>w.getURL()==='https://web.whatsapp.com/');if(!wc)throw Error('WhatsApp view missing');return wc.executeJavaScript(`new Promise(resolve=>{let rounds=0;const check=()=>{const text=document.body?.innerText||'';const unsupported=/WhatsApp works with|update.*(?:Chrome|browser)|browser.*not supported/i.test(text);const login=!!document.querySelector('canvas,div[data-ref]')||/log in to WhatsApp|log in with phone number|link with phone number|scan.*(?:QR|code)|مسح.*(?:رمز|كود)/i.test(text);if(unsupported||login||rounds++>45)resolve({unsupported,login,title:document.title});else setTimeout(check,1000);};check();})`);});
+  let liveWa;
+  for(let attempt=0;attempt<3;attempt++){
+    try{liveWa=await inspectLiveWhatsApp();break;}
+    catch(error){
+      if(attempt===2||!error.message.includes('WebFrame was removed'))throw error;
+      // WhatsApp can replace its frame while initializing the login screen.
+      await new Promise(resolve=>setTimeout(resolve,1000));
+    }
+  }
   assert.equal(liveWa.unsupported,false,'WhatsApp rejected embedded Chromium');assert.equal(liveWa.login,true,'Real WhatsApp login surface did not load');
   require('node:fs').writeFileSync('artifacts/windows-whatsapp-live-check.json',JSON.stringify({loginSurface:true,paired:false,messagesSent:false,qrCaptured:false}));
   await realShell.locator('[data-action="back"]').click();await page.bringToFront();
