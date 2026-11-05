@@ -31,6 +31,9 @@ const {makeService}=require('../cloud/service');const {memoryStore}=require('../
   await page.waitForFunction(()=>document.getElementById('metrics').textContent.includes('شركة اختبار Bright'));
   await page.waitForFunction(()=>document.getElementById('status').textContent.includes('تم تحميل البيانات'));
   assert.equal(await page.locator('#adminPanel').isVisible(),false);
+  await page.locator('.nav-item[data-go="team"]').click();
+  await page.locator('#loadTeamPerformance').click();
+  await page.locator('#teamPerformanceRows').getByRole('heading',{name:'owner001',exact:true}).waitFor();
   // Native WhatsApp view: a separate session with no Bright bridge or Node access.
   await electron.context().route('https://web.whatsapp.com/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="ar"><head><meta charset="utf-8"></head><body><h1>واجهة واتساب التجريبية</h1></body></html>'}));
   await page.locator('.nav-item[data-go="inbox"]').click();
